@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <General><MainUnit Value="0"/><Title Value="FileAss Demo"/><UseAppBundle Value="False"/></General>
+    <RequiredPackages Count="2">
+      <Item1><PackageName Value="fileass_runtime"/></Item1>
+      <Item2><PackageName Value="LCL"/></Item2>
+    </RequiredPackages>
+    <Units Count="2">
+      <Unit0><Filename Value="FileAssDemo.lpr"/><IsPartOfProject Value="True"/></Unit0>
+      <Unit1><Filename Value="DemoMain.pas"/><IsPartOfProject Value="True"/><ComponentName Value="DemoForm"/><HasResources Value="True"/><ResourceBaseClass Value="Form"/></Unit1>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <Target><Filename Value="FileAssDemo"/></Target>
+    <SearchPaths><OtherUnitFiles Value="../component/src"/><UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/></SearchPaths>
+  </CompilerOptions>
+</CONFIG>

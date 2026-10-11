@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="5">
+    <Name Value="fileass_runtime"/>
+    <Type Value="RunTime"/>
+    <Author Value="Tony Stone"/>
+    <Description Value="File association runtime component and core model"/>
+    <License Value="0BSD"/>
+    <Version Major="0" Minor="1"/>
+    <CompilerOptions><Version Value="11"/><SearchPaths><OtherUnitFiles Value="src"/><UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/></SearchPaths></CompilerOptions>
+    <Files Count="7">
+      <Item1><Filename Value="src/FileAssMan.pas"/><UnitName Value="FileAssMan"/></Item1>
+      <Item2><Filename Value="src/FACore.pas"/><UnitName Value="FACore"/></Item2>
+      <Item3><Filename Value="src/FATypes.pas"/><UnitName Value="FATypes"/></Item3>
+      <Item4><Filename Value="src/FACollection.pas"/><UnitName Value="FACollection"/></Item4>
+      <Item5><Filename Value="src/FAValidation.pas"/><UnitName Value="FAValidation"/></Item5>
+      <Item6><Filename Value="src/FAFormats.pas"/><UnitName Value="FAFormats"/></Item6>
+      <Item7><Filename Value="src/FAInspection.pas"/><UnitName Value="FAInspection"/></Item7>
+    </Files>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+  </Package>
+</CONFIG>

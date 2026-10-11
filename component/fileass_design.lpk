@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="5">
+    <Name Value="fileass_design"/>
+    <Type Value="DesignTime"/>
+    <Author Value="Tony Stone"/>
+    <Description Value="FileAss Lazarus palette registration"/>
+    <License Value="0BSD"/>
+    <Version Major="0" Minor="1"/>
+    <CompilerOptions><Version Value="11"/><SearchPaths><OtherUnitFiles Value="design;src"/><UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/></SearchPaths></CompilerOptions>
+    <Files Count="2"><Item1><Filename Value="design/FARegister.pas"/><HasRegisterProc Value="True"/><UnitName Value="FARegister"/></Item1><Item2><Filename Value="design/FAComponentEditor.pas"/><UnitName Value="FAComponentEditor"/></Item2></Files>
+    <RequiredPkgs Count="2">
+      <Item1><PackageName Value="fileass_runtime"/></Item1>
+      <Item2><PackageName Value="IDEIntf"/></Item2>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+  </Package>
+</CONFIG>

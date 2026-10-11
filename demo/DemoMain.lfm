@@ -1,0 +1,221 @@
+object DemoForm: TDemoForm
+  Left = 200
+  Height = 640
+  Top = 120
+  Width = 1000
+  Caption = 'FileAss Demo'
+  ClientHeight = 640
+  ClientWidth = 1000
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  object ActionsPanel: TPanel
+    Align = alTop
+    Height = 164
+    Width = 1000
+    BevelOuter = bvNone
+    TabOrder = 0
+    object RegisterButton: TButton
+      Left = 16
+      Top = 12
+      Width = 340
+      Height = 36
+      Caption = '1. Register File Types on This System'
+      OnClick = RegisterButtonClick
+      TabOrder = 0
+    end
+    object ValidateButton: TButton
+      Left = 372
+      Top = 12
+      Width = 300
+      Height = 36
+      Caption = '2. Verify System Registration'
+      OnClick = ValidateButtonClick
+      TabOrder = 1
+    end
+    object NoteIcon: TImage
+      Left = 16
+      Top = 68
+      Width = 48
+      Height = 48
+      Cursor = crHandPoint
+      Hint = 'Show this sample in the system file manager'
+      ShowHint = True
+      OnClick = SampleIconClick
+      Proportional = True
+      Stretch = True
+    end
+    object NoteLabel: TLabel
+      Left = 76
+      Top = 82
+      Caption = '3. Find Blue Note (.fanote)'
+      Cursor = crHandPoint
+      OnClick = SampleIconClick
+    end
+    object SketchIcon: TImage
+      Left = 394
+      Top = 68
+      Width = 48
+      Height = 48
+      Cursor = crHandPoint
+      Hint = 'Show this sample in the system file manager'
+      ShowHint = True
+      OnClick = SampleIconClick
+      Proportional = True
+      Stretch = True
+    end
+    object SketchLabel: TLabel
+      Left = 454
+      Top = 82
+      Caption = '3. Find Amber Sketch (.fasketch)'
+      Cursor = crHandPoint
+      OnClick = SampleIconClick
+    end
+    object HintLabel: TLabel
+      Left = 16
+      Top = 132
+      Caption = 'Click an icon to select its sample in your file manager, then double-click the file. Use Open With to choose this demo if needed.'
+    end
+  end
+  object UtilitiesPanel: TPanel
+    Align = alBottom
+    Height = 60
+    BevelOuter = bvNone
+    TabOrder = 2
+    object RemoveButton: TButton
+      Left = 12
+      Top = 12
+      Width = 242
+      Height = 36
+      Caption = 'Remove Demo File Associations'
+      OnClick = RemoveButtonClick
+      TabOrder = 0
+    end
+    object RefreshButton: TButton
+      Left = 262
+      Top = 12
+      Width = 218
+      Height = 36
+      Caption = 'Refresh System File Types'
+      OnClick = RefreshButtonClick
+      TabOrder = 1
+    end
+    object DefaultsButton: TButton
+      Left = 488
+      Top = 12
+      Width = 236
+      Height = 36
+      Caption = 'Open Default Applications...'
+      OnClick = DefaultsButtonClick
+      TabOrder = 2
+    end
+    object GenerateButton: TButton
+      Left = 732
+      Top = 12
+      Width = 252
+      Height = 36
+      Caption = 'Generate Installer Resources...'
+      OnClick = GenerateButtonClick
+      TabOrder = 3
+    end
+  end
+  object Pages: TPageControl
+    Align = alClient
+    Top = 164
+    Height = 416
+    Width = 1000
+    ActivePage = ResultsTab
+    TabOrder = 1
+    object ResultsTab: TTabSheet
+      Caption = 'Registration & Opening Files'
+      object ResultsMemo: TMemo
+        Align = alClient
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        WordWrap = False
+        TabOrder = 0
+      end
+    end
+    object SystemTab: TTabSheet
+      Caption = 'System File Types'
+      object BrowserPanel: TPanel
+        Align = alTop
+        Height = 48
+        BevelOuter = bvNone
+        TabOrder = 0
+        object FilterLabel: TLabel
+          Left = 12
+          Top = 15
+          Caption = 'Filter:'
+        end
+        object FilterEdit: TEdit
+          Left = 66
+          Top = 10
+          Width = 370
+          OnChange = FilterChanged
+          TabOrder = 0
+        end
+        object DemoOnly: TCheckBox
+          Left = 460
+          Top = 13
+          Width = 180
+          Caption = 'Only demo file types'
+          Checked = True
+          State = cbChecked
+          OnChange = FilterChanged
+          TabOrder = 1
+        end
+      end
+      object TypesGrid: TStringGrid
+        Align = alClient
+        ColCount = 3
+        DefaultColWidth = 300
+        FixedCols = 0
+        RowCount = 2
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goColSizing, goRowSelect]
+        TabOrder = 1
+      end
+    end
+    object OpenedTab: TTabSheet
+      Caption = 'Received Documents'
+      object OpenedMemo: TMemo
+        Align = alClient
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        WordWrap = False
+        TabOrder = 0
+      end
+    end
+  end
+  object FileAssMan: TFileAssMan
+    ApplicationID = 'org.example.fileass.demo'
+    ApplicationName = 'FileAss Demo'
+    ApplicationDescription = 'FileAss document opening demonstration'
+    FileTypes = <
+      item
+        Extension = '.fanote'
+        Description = 'FileAss Blue Note'
+        MimeType = 'application/x-fileass-demo-note'
+        TypeIdentifier = 'org.example.fileass.demo.note'
+        WindowsIcon = 'icons/blue-note.ico'
+        LinuxIcon = 'icons/blue-note.svg'
+        OpenArguments = '--'
+      end
+      item
+        Extension = '.fasketch'
+        Description = 'FileAss Amber Sketch'
+        MimeType = 'application/x-fileass-demo-sketch'
+        TypeIdentifier = 'org.example.fileass.demo.sketch'
+        WindowsIcon = 'icons/amber-sketch.ico'
+        LinuxIcon = 'icons/amber-sketch.svg'
+        OpenArguments = '--'
+      end>
+    Left = 736
+    Top = 88
+  end
+  object OutputDialog: TSelectDirectoryDialog
+    Title = 'Choose an empty deployment output directory'
+    Left = 816
+    Top = 88
+  end
+end
