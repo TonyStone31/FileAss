@@ -8,10 +8,15 @@ type
   private
     function RootKey(Configuration: TFileAssConfiguration): HKEY;
     function ProgID(Configuration: TFileAssConfiguration; Item: TFileAssTypeItem): UTF8String;
+    procedure AddInventory(Configuration: TFileAssConfiguration; Entries: TFileAssResources);
     procedure BuildEntries(Configuration: TFileAssConfiguration; Entries: TFileAssResources);
     function ReadValue(Reg: TRegistry; const Key, Name: UTF8String; out Value: UTF8String): Boolean;
     procedure Preflight(Reg: TRegistry; Configuration: TFileAssConfiguration;
-      Entries: TFileAssResources; Removing: Boolean);
+      Entries: TFileAssResources);
+    function ReadInstalled(Reg: TRegistry; Configuration: TFileAssConfiguration;
+      Entries: TFileAssResources): Boolean;
+    procedure DeleteEntry(Reg: TRegistry; Configuration: TFileAssConfiguration;
+      const Path: UTF8String);
     procedure PruneKey(Reg: TRegistry; const Key: UTF8String);
   public
     function RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; override;
@@ -70,6 +75,15 @@ begin
     end;
   finally Arguments.Free; end;
 end;
+procedure TFileAssWindowsBackend.AddInventory(Configuration: TFileAssConfiguration;
+  Entries: TFileAssResources);
+var I, Count: Integer; Key: UTF8String;
+begin
+  Key := 'Software\FileAss\' + Configuration.ApplicationID + '\RegisteredValues';
+  Count := Entries.Count;
+  for I := 0 to Count - 1 do
+    Entries.AddFile(Key + #9 + Entries[I].Path, Entries[I].Contents);
+end;
 function TFileAssWindowsBackend.ReadValue(Reg: TRegistry; const Key, Name: UTF8String; out Value: UTF8String): Boolean;
 begin
   Value := '';
@@ -80,9 +94,44 @@ begin
     if Result then Value := UTF8Encode(Reg.ReadString(UTF8Decode(Name)));
   finally Reg.CloseKey; end;
 end;
+function TFileAssWindowsBackend.ReadInstalled(Reg: TRegistry;
+  Configuration: TFileAssConfiguration; Entries: TFileAssResources): Boolean;
+var Names: TStringList; I, Separator: Integer; Path, Key, Name, Prefix, Extension: UTF8String;
+begin
+  Result := False;
+  Names := TStringList.Create;
+  try
+    if not Reg.OpenKeyReadOnly(UTF8Decode('Software\FileAss\' +
+      Configuration.ApplicationID + '\RegisteredValues')) then Exit;
+    try
+      Reg.GetValueNames(Names);
+      for I := 0 to Names.Count - 1 do begin
+        Path := UTF8String(Names[I]);
+        Separator := Pos(#9, Path);
+        if Separator = 0 then raise Exception.Create('Invalid registration inventory.');
+        Key := Copy(Path, 1, Separator - 1);
+        Name := Copy(Path, Separator + 1, MaxInt);
+        Prefix := 'Software\FileAss\' + Configuration.ApplicationID + '\Capabilities';
+        if not ((Key = Prefix) or (Pos(Prefix + '\', Key) = 1) or
+          ((Key = 'Software\RegisteredApplications') and (Name = Configuration.ApplicationID)) or
+          (Pos('Software\Classes\' + Configuration.ApplicationID + '.', Key) = 1)) then begin
+          Extension := Copy(Key, Length('Software\Classes\') + 1, MaxInt);
+          Separator := Pos('\', Extension);
+          if Separator = 0 then raise Exception.Create('Invalid registration inventory path.');
+          Extension := Copy(Extension, 1, Separator - 1);
+          if (Key <> 'Software\Classes\' + Extension + '\OpenWithProgids') or
+            (Name <> Configuration.ApplicationID + Extension) then
+            raise Exception.Create('An unrelated registry path in the inventory will be preserved.');
+        end;
+        Entries.AddFile(Path, UTF8Encode(Reg.ReadString(Names[I])));
+      end;
+      Result := Entries.Count > 0;
+    finally Reg.CloseKey; end;
+  finally Names.Free; end;
+end;
 procedure TFileAssWindowsBackend.Preflight(Reg: TRegistry; Configuration: TFileAssConfiguration;
-  Entries: TFileAssResources; Removing: Boolean);
-var I, Separator: Integer; Key, Name, Value: UTF8String;
+  Entries: TFileAssResources);
+var I, Separator: Integer; Key, Name, Value, OwnerKey, Prefix: UTF8String;
   procedure CheckOwner(const OwnerKey: UTF8String);
   var Identity: UTF8String;
   begin
@@ -93,15 +142,47 @@ var I, Separator: Integer; Key, Name, Value: UTF8String;
   end;
 begin
   CheckOwner('Software\FileAss\' + Configuration.ApplicationID + '\Capabilities');
-  for I := 0 to Configuration.FileTypes.Count - 1 do
-    if Configuration.FileTypes[I].Enabled then
-      CheckOwner('Software\Classes\' + ProgID(Configuration, Configuration.FileTypes[I]));
+  Prefix := 'Software\Classes\' + Configuration.ApplicationID + '.';
   for I := 0 to Entries.Count - 1 do begin
     Separator := Pos(#9, Entries[I].Path);
     Key := Copy(Entries[I].Path, 1, Separator - 1);
     Name := Copy(Entries[I].Path, Separator + 1, MaxInt);
+    if Pos(Prefix, Key) = 1 then begin
+      OwnerKey := Key;
+      Separator := Pos('\', Copy(Key, Length('Software\Classes\') + 1, MaxInt));
+      if Separator > 0 then OwnerKey := Copy(Key, 1, Length('Software\Classes\') + Separator - 1);
+      CheckOwner(OwnerKey);
+    end;
     if ReadValue(Reg, Key, Name, Value) and (Value <> Entries[I].Contents) then
       raise Exception.Create('A changed registry value will be preserved: ' + Key + '\' + Name);
+  end;
+end;
+procedure TFileAssWindowsBackend.DeleteEntry(Reg: TRegistry;
+  Configuration: TFileAssConfiguration; const Path: UTF8String);
+var Separator: Integer; Key, Name, Value, Parent, Inventory: UTF8String;
+begin
+  Separator := Pos(#9, Path);
+  Key := Copy(Path, 1, Separator - 1);
+  Name := Copy(Path, Separator + 1, MaxInt);
+  if ReadValue(Reg, Key, Name, Value) then begin
+    if not Reg.OpenKey(UTF8Decode(Key), False) then RaiseLastOSError(Reg.LastError);
+    try
+      if not Reg.DeleteValue(UTF8Decode(Name)) then RaiseLastOSError(Reg.LastError);
+    finally Reg.CloseKey; end;
+    PruneKey(Reg, Key);
+    Parent := Key;
+    while (Pos('\shell', Parent) > 0) or (Pos('\Capabilities\', Parent) > 0) do begin
+      Parent := Copy(Parent, 1, LastDelimiter('\', Parent) - 1);
+      PruneKey(Reg, Parent);
+    end;
+  end;
+  Inventory := 'Software\FileAss\' + Configuration.ApplicationID + '\RegisteredValues';
+  if Reg.OpenKey(UTF8Decode(Inventory), False) then begin
+    try
+      if Reg.ValueExists(UTF8Decode(Path)) and not Reg.DeleteValue(UTF8Decode(Path)) then
+        RaiseLastOSError(Reg.LastError);
+    finally Reg.CloseKey; end;
+    PruneKey(Reg, Inventory);
   end;
 end;
 procedure TFileAssWindowsBackend.PruneKey(Reg: TRegistry; const Key: UTF8String);
@@ -121,27 +202,47 @@ begin
   finally Names.Free; end;
 end;
 function TFileAssWindowsBackend.RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
-var Reg: TRegistry; Entries: TFileAssResources; I, Separator, Applied: Integer; Key, Name: UTF8String;
+var Reg: TRegistry; Entries, Installed, NewEntries: TFileAssResources;
+  I, J, Separator, Applied: Integer; Key, Name, Inventory: UTF8String; Known: Boolean;
 begin
   Reg := TRegistry.Create(KEY_READ or KEY_WRITE);
   Entries := TFileAssResources.Create;
+  Installed := TFileAssResources.Create;
+  NewEntries := TFileAssResources.Create;
   Applied := 0;
   try
     try
       Reg.RootKey := RootKey(Configuration);
       BuildEntries(Configuration, Entries);
-      Preflight(Reg, Configuration, Entries, False);
+      // Compare existing data to the last installed values, not the next version.
+      if ReadInstalled(Reg, Configuration, Installed) then begin
+        Preflight(Reg, Configuration, Installed);
+        for I := 0 to Entries.Count - 1 do begin
+          Known := False;
+          for J := 0 to Installed.Count - 1 do
+            if SameText(Entries[I].Path, Installed[J].Path) then begin Known := True; Break; end;
+          if not Known then NewEntries.AddFile(Entries[I].Path, Entries[I].Contents);
+        end;
+        Preflight(Reg, Configuration, NewEntries);
+      end else Preflight(Reg, Configuration, Entries);
+      Inventory := 'Software\FileAss\' + Configuration.ApplicationID + '\RegisteredValues';
       for I := 0 to Entries.Count - 1 do begin
         Separator := Pos(#9, Entries[I].Path);
         Key := Copy(Entries[I].Path, 1, Separator - 1);
         Name := Copy(Entries[I].Path, Separator + 1, MaxInt);
-        if not Reg.OpenKey(UTF8Decode(Key), True) then begin
-          RaiseLastOSError(Reg.LastError);
-          Exit;
-        end;
+        if not Reg.OpenKey(UTF8Decode(Key), True) then RaiseLastOSError(Reg.LastError);
         try Reg.WriteString(UTF8Decode(Name), UTF8Decode(Entries[I].Contents));
         finally Reg.CloseKey; end;
         Inc(Applied);
+        if not Reg.OpenKey(UTF8Decode(Inventory), True) then RaiseLastOSError(Reg.LastError);
+        try Reg.WriteString(UTF8Decode(Entries[I].Path), UTF8Decode(Entries[I].Contents));
+        finally Reg.CloseKey; end;
+      end;
+      for I := Installed.Count - 1 downto 0 do begin
+        Known := False;
+        for J := 0 to Entries.Count - 1 do
+          if SameText(Installed[I].Path, Entries[J].Path) then begin Known := True; Break; end;
+        if not Known then DeleteEntry(Reg, Configuration, Installed[I].Path);
       end;
       SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nil, nil);
       Result := FileAssResult(farSuccess, 'Registered as an available handler. User defaults are unchanged.');
@@ -155,38 +256,29 @@ begin
         end;
       end;
     end;
-  finally Entries.Free; Reg.Free; end;
+  finally NewEntries.Free; Installed.Free; Entries.Free; Reg.Free; end;
 end;
 function TFileAssWindowsBackend.UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
-var Reg: TRegistry; Entries: TFileAssResources; I, Separator, Removed: Integer; Key, Name, Value, Parent: UTF8String;
+var Reg: TRegistry; Entries: TFileAssResources; I, Pass, Removed: Integer;
+  OwnerMarker: Boolean;
 begin
   Reg := TRegistry.Create(KEY_READ or KEY_WRITE);
   Entries := TFileAssResources.Create;
   Removed := 0;
   try
     try
-      Result := Configuration.Validate(fatWindows);
-      if not Result.Succeeded then Exit;
       Reg.RootKey := RootKey(Configuration);
-      BuildEntries(Configuration, Entries);
-      Preflight(Reg, Configuration, Entries, True);
-      for I := Entries.Count - 1 downto 0 do begin
-        Separator := Pos(#9, Entries[I].Path);
-        Key := Copy(Entries[I].Path, 1, Separator - 1);
-        Name := Copy(Entries[I].Path, Separator + 1, MaxInt);
-        if not ReadValue(Reg, Key, Name, Value) then Continue;
-        if not Reg.OpenKey(UTF8Decode(Key), False) then RaiseLastOSError(Reg.LastError);
-        try
-          if not Reg.DeleteValue(UTF8Decode(Name)) then RaiseLastOSError(Reg.LastError);
-        finally Reg.CloseKey; end;
-        Inc(Removed);
-        PruneKey(Reg, Key);
-        Parent := Key;
-        while (Pos('\shell', Parent) > 0) or (Pos('\Capabilities\', Parent) > 0) do begin
-          Parent := Copy(Parent, 1, LastDelimiter('\', Parent) - 1);
-          PruneKey(Reg, Parent);
+      if not ReadInstalled(Reg, Configuration, Entries) then BuildEntries(Configuration, Entries);
+      Preflight(Reg, Configuration, Entries);
+      // Leave ownership markers in place until all other values are removed.
+      for Pass := 0 to 1 do
+        for I := Entries.Count - 1 downto 0 do begin
+          OwnerMarker := Copy(Entries[I].Path, Length(Entries[I].Path) - 11, 12) = 'FileAssOwner';
+          if OwnerMarker <> (Pass = 1) then Continue;
+          Inc(Removed);
+          DeleteEntry(Reg, Configuration, Entries[I].Path);
         end;
-      end;
+      PruneKey(Reg, 'Software\FileAss\' + Configuration.ApplicationID);
       SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nil, nil);
       Result := FileAssResult(farSuccess, 'Owned registration values removed. User defaults are unchanged.');
     except
@@ -236,6 +328,7 @@ begin
   try
     try
       BuildEntries(Configuration, Entries);
+      AddInventory(Configuration, Entries);
       if Configuration.RegistrationScope = fasAllUsers then Root := 'HKEY_LOCAL_MACHINE'
       else Root := 'HKEY_CURRENT_USER';
       Text := 'Windows Registry Editor Version 5.00' + #13#10;
@@ -270,6 +363,7 @@ begin
   try
     try
       BuildEntries(Configuration, Entries);
+      AddInventory(Configuration, Entries);
       for I := 0 to Entries.Count - 1 do
         Text.Add(Entries[I].Path + ' = ' + Entries[I].Contents);
       Result := FileAssResult(farSuccess, 'Registry values generated without installation.');

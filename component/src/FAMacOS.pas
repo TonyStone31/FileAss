@@ -74,9 +74,57 @@ var
   I, J: Integer;
   Item, First: TFileAssTypeItem;
   Identifier, Role: UTF8String;
+  OwnBundle: Boolean;
   procedure AddMissing(const Key, Value: UTF8String);
   begin
     if not Assigned(PlistValue(Dictionary, Key)) then AddString(Dictionary, Key, Value);
+  end;
+  function ConfiguredOwnType(const Value: DOMString): Boolean;
+  var Index: Integer;
+  begin
+    Result := False;
+    if Pos(UTF8Decode(Configuration.ApplicationID + '.'), Value) <> 1 then Exit;
+    for Index := 0 to Configuration.FileTypes.Count - 1 do
+      if Configuration.FileTypes[Index].Enabled and
+        (UTF8Decode(Configuration.FileTypes[Index].TypeIdentifier) = Value) then Exit(True);
+  end;
+  procedure RemoveOwned(List: TDOMNode; IsDocument: Boolean);
+  var Entry, Next, Value, Child: TDOMNode; Owned, HasType: Boolean;
+  begin
+    Entry := List.FirstChild;
+    while Assigned(Entry) do begin
+      Next := Entry.NextSibling;
+      if Entry.NodeName = 'dict' then begin
+        Value := PlistValue(Entry, 'FileAssOwner');
+        Owned := Assigned(Value) and (Value.TextContent = UTF8Decode(Configuration.ApplicationID));
+        // Earlier output had no marker; adopt only this bundle's own UTI namespace.
+        if not Assigned(Value) and OwnBundle then begin
+          if IsDocument then begin
+            Value := PlistValue(Entry, 'LSItemContentTypes');
+            Owned := Assigned(Value);
+            HasType := False;
+            if Assigned(Value) then begin
+              Child := Value.FirstChild;
+              while Assigned(Child) do begin
+                if Child.NodeType = ELEMENT_NODE then begin
+                  HasType := True;
+                  Owned := Owned and (Child.NodeName = 'string') and
+                    ConfiguredOwnType(Child.TextContent);
+                end;
+                Child := Child.NextSibling;
+              end;
+            end;
+            Owned := Owned and HasType;
+          end else begin
+            Value := PlistValue(Entry, 'UTTypeIdentifier');
+            Owned := Assigned(Value) and
+              ConfiguredOwnType(Value.TextContent);
+          end;
+        end;
+        if Owned then begin List.RemoveChild(Entry); Entry.Free; end;
+      end;
+      Entry := Next;
+    end;
   end;
   procedure CheckCollision(List: TDOMNode; const Identifier: UTF8String; IsDocument: Boolean);
   var Entry, Value, Child: TDOMNode;
@@ -112,6 +160,7 @@ begin
     try
       Result := Configuration.Validate(fatMacOS, True);
       if not Result.Succeeded then Exit;
+      OwnBundle := False;
       if TemplateFile <> '' then begin
         Stream := TStringStream.Create(FileAssReadFile(TemplateFile));
         try ReadXMLFile(Document, Stream); finally Stream.Free; end;
@@ -122,6 +171,7 @@ begin
         Node := PlistValue(Dictionary, 'CFBundleIdentifier');
         if Assigned(Node) and (Node.TextContent <> UTF8Decode(Configuration.ApplicationID)) then
           raise Exception.Create('The bundle identifier belongs to a different application.');
+        OwnBundle := Assigned(Node);
       end else begin
         Document := TXMLDocument.Create;
         Root := Document.CreateElement('plist');
@@ -138,6 +188,9 @@ begin
       Documents := PlistArray(Dictionary, 'CFBundleDocumentTypes');
       Exported := PlistArray(Dictionary, 'UTExportedTypeDeclarations');
       Imported := PlistArray(Dictionary, 'UTImportedTypeDeclarations');
+      RemoveOwned(Documents, True);
+      RemoveOwned(Exported, False);
+      RemoveOwned(Imported, False);
       for I := 0 to Configuration.FileTypes.Count - 1 do
         if Configuration.FileTypes[I].Enabled and
           (Types.IndexOf(Configuration.FileTypes[I].TypeIdentifier) < 0) then
@@ -156,6 +209,7 @@ begin
           end;
         DocumentType := Document.CreateElement('dict');
         Documents.AppendChild(DocumentType);
+        AddString(DocumentType, 'FileAssOwner', Configuration.ApplicationID);
         AddString(DocumentType, 'CFBundleTypeName', First.Description);
         case First.Role of
           farEditor: Role := 'Editor';
@@ -173,6 +227,7 @@ begin
         Definition := Document.CreateElement('dict');
         if Pos(Configuration.ApplicationID + '.', Identifier) = 1 then Exported.AppendChild(Definition)
         else Imported.AppendChild(Definition);
+        AddString(Definition, 'FileAssOwner', Configuration.ApplicationID);
         AddString(Definition, 'UTTypeIdentifier', Identifier);
         AddString(Definition, 'UTTypeDescription', First.Description);
         AddArrayString(AddValue(Definition, 'UTTypeConformsTo', 'array'), 'public.data');

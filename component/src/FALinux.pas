@@ -195,9 +195,10 @@ function TFileAssLinuxBackend.RegisterTypes(Configuration: TFileAssConfiguration
 var
   Resources: TFileAssResources;
   Manifest, NewManifest: TStringList;
-  Backups: TFileAssResources;
+  Backups, Obsolete: TFileAssResources;
+  Existing: TStringList;
   Root, Path, ManifestPath: UTF8String;
-  I, Applied: Integer;
+  I, Applied, Deleted: Integer;
   HadManifest: Boolean;
   OldManifest: RawByteString;
 begin
@@ -205,9 +206,12 @@ begin
   if not Result.Succeeded then Exit;
   Resources := TFileAssResources.Create;
   Backups := TFileAssResources.Create;
+  Obsolete := TFileAssResources.Create;
+  Existing := TStringList.Create;
   Manifest := TStringList.Create;
   NewManifest := TStringList.Create;
   Applied := 0;
+  Deleted := 0;
   NewManifest.NameValueSeparator := #9;
   try
     try
@@ -225,20 +229,29 @@ begin
         Path := Root + '/' + Resources[I].Path;
         if FileExists(Path) and (Manifest.IndexOfName(Resources[I].Path) < 0) then
           raise Exception.Create('An unowned resource already exists: ' + Resources[I].Path);
-        if FileExists(Path) then Backups.AddFile(Path, FileAssReadFile(Path))
-        else Backups.AddFile(Path, '');
+        if FileExists(Path) then begin
+          Backups.AddFile(Path, FileAssReadFile(Path));
+          Existing.Add(Path);
+        end else Backups.AddFile(Path, '');
         Backups[I].Path := Path;
         NewManifest.Add(Resources[I].Path + #9 + MD5Print(MD5String(Resources[I].Contents)));
       end;
-      { Retain ownership of previously installed types until explicit removal. }
       for I := 0 to Manifest.Count - 1 do
-        if NewManifest.IndexOfName(Manifest.Names[I]) < 0 then NewManifest.Add(Manifest[I]);
+        if NewManifest.IndexOfName(Manifest.Names[I]) < 0 then begin
+          Path := Root + '/' + Manifest.Names[I];
+          if FileExists(Path) then Obsolete.AddFile(Path, FileAssReadFile(Path));
+        end;
       for I := 0 to Resources.Count - 1 do begin
         Path := Root + '/' + Resources[I].Path;
         if not ForceDirectories(ExtractFileDir(Path)) then
           raise Exception.Create('Cannot create the resource directory.');
         Inc(Applied);
         FileAssWriteFile(Path, Resources[I].Contents);
+      end;
+      for I := 0 to Obsolete.Count - 1 do begin
+        Inc(Deleted);
+        if not DeleteFile(Obsolete[I].Path) then
+          raise Exception.Create('Cannot remove an obsolete owned resource: ' + Obsolete[I].Path);
       end;
       if not ForceDirectories(ExtractFileDir(ManifestPath)) then
         raise Exception.Create('Cannot create the ownership directory.');
@@ -247,13 +260,15 @@ begin
     except
       on E: Exception do begin
         Result := FileAssFailure(E);
-        if Applied > 0 then begin
+        if (Applied > 0) or (Deleted > 0) then begin
           try
             for I := 0 to Applied - 1 do
-              if Manifest.IndexOfName(Resources[I].Path) >= 0 then
+              if Existing.IndexOf(Backups[I].Path) >= 0 then
                 FileAssWriteFile(Backups[I].Path, Backups[I].Contents)
               else if not DeleteFile(Backups[I].Path) then
                 raise Exception.Create('Cannot remove a newly created resource.');
+            for I := 0 to Deleted - 1 do
+              FileAssWriteFile(Obsolete[I].Path, Obsolete[I].Contents);
             if HadManifest then FileAssWriteFile(ManifestPath, OldManifest)
             else if FileExists(ManifestPath) then DeleteFile(ManifestPath);
           except
@@ -265,7 +280,7 @@ begin
         end;
       end;
     end;
-  finally NewManifest.Free; Manifest.Free; Backups.Free; Resources.Free; end;
+  finally Existing.Free; Obsolete.Free; NewManifest.Free; Manifest.Free; Backups.Free; Resources.Free; end;
 end;
 function TFileAssLinuxBackend.UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
 var Manifest: TStringList; Root, Path: UTF8String; I, Removed: Integer;

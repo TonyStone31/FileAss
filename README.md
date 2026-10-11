@@ -95,6 +95,12 @@ if not Outcome.Succeeded then
 
 Use `UnregisterAll` to remove owned registrations. Nothing is registered
 at startup, and the user's chosen default application is never replaced.
+On Windows, registration updates use the saved installed values, and removal
+uses the installed inventory even if the collection has changed. Externally
+edited values are preserved. Older registrations without an inventory must
+first be registered with their unchanged settings, or removed with those
+settings before upgrading.
+
 macOS requires application-bundle deployment rather than runtime registration.
 
 Copyright (c) 2026 Tony Stone.
