@@ -1,33 +1,37 @@
 unit FAMacOS;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
+
 uses Classes, SysUtils, DOM, FATypes, FACore;
+
 type
   TFileAssMacOSBackend = class(TFileAssBackend)
   private
-    function BuildPlist(Configuration: TFileAssConfiguration;
-      const TemplateFile: UTF8String; out Xml: UTF8String): TFileAssResult;
+    function BuildPlist(Configuration: TFileAssConfiguration; const TemplateFile: utf8string; out Xml: utf8string): TFileAssResult;
   public
     function RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; override;
     function UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; override;
-    function GetStatus(Configuration: TFileAssConfiguration;
-      out Diagnostic: TFileAssResult): TFileAssStatus; override;
-    function GenerateDeploymentFiles(Configuration: TFileAssConfiguration;
-      const OutputDirectory: UTF8String): TFileAssResult; override;
+    function GetStatus(Configuration: TFileAssConfiguration; out Diagnostic: TFileAssResult): TFileAssStatus; override;
+    function GenerateDeploymentFiles(Configuration: TFileAssConfiguration; const OutputDirectory: utf8string): TFileAssResult; override;
     function Preview(Configuration: TFileAssConfiguration; Text: TStrings): TFileAssResult; override;
     function OpenDefaultAppsSettings: TFileAssResult; override;
-    function GenerateMergedPlist(Configuration: TFileAssConfiguration;
-      const TemplateFile, OutputFile: UTF8String): TFileAssResult;
+    function GenerateMergedPlist(Configuration: TFileAssConfiguration; const TemplateFile, OutputFile: utf8string): TFileAssResult;
   end;
+
 implementation
+
 uses XMLRead, XMLWrite, FAFormats, FACollection;
-function PlistValue(Dictionary: TDOMNode; const Key: UTF8String): TDOMNode;
-var Node: TDOMNode;
+
+function PlistValue(Dictionary: TDOMNode; const Key: utf8string): TDOMNode;
+var
+  Node: TDOMNode;
 begin
   Result := nil;
   Node := Dictionary.FirstChild;
-  while Assigned(Node) do begin
-    if (Node.NodeName = 'key') and (Node.TextContent = UTF8Decode(Key)) then begin
+  while Assigned(Node) do
+  begin
+    if (Node.NodeName = 'key') and (Node.TextContent = UTF8Decode(Key)) then
+    begin
       Result := Node.NextSibling;
       while Assigned(Result) and (Result.NodeType <> ELEMENT_NODE) do Result := Result.NextSibling;
       Exit;
@@ -35,8 +39,10 @@ begin
     Node := Node.NextSibling;
   end;
 end;
-function AddValue(Dictionary: TDOMNode; const Key, Kind: UTF8String): TDOMNode;
-var KeyNode: TDOMNode;
+
+function AddValue(Dictionary: TDOMNode; const Key, Kind: utf8string): TDOMNode;
+var
+  KeyNode: TDOMNode;
 begin
   KeyNode := Dictionary.OwnerDocument.CreateElement('key');
   KeyNode.AppendChild(Dictionary.OwnerDocument.CreateTextNode(UTF8Decode(Key)));
@@ -44,105 +50,133 @@ begin
   Result := Dictionary.OwnerDocument.CreateElement(UTF8Decode(Kind));
   Dictionary.AppendChild(Result);
 end;
-procedure AddString(Dictionary: TDOMNode; const Key, Value: UTF8String);
+
+procedure AddString(Dictionary: TDOMNode; const Key, Value: utf8string);
 begin
   AddValue(Dictionary, Key, 'string').AppendChild(
     Dictionary.OwnerDocument.CreateTextNode(UTF8Decode(Value)));
 end;
-procedure AddArrayString(List: TDOMNode; const Value: UTF8String);
-var Node: TDOMNode;
+
+procedure AddArrayString(List: TDOMNode; const Value: utf8string);
+var
+  Node: TDOMNode;
 begin
   Node := List.OwnerDocument.CreateElement('string');
   Node.AppendChild(List.OwnerDocument.CreateTextNode(UTF8Decode(Value)));
   List.AppendChild(Node);
 end;
-function PlistArray(Dictionary: TDOMNode; const Key: UTF8String): TDOMNode;
+
+function PlistArray(Dictionary: TDOMNode; const Key: utf8string): TDOMNode;
 begin
   Result := PlistValue(Dictionary, Key);
   if not Assigned(Result) then Result := AddValue(Dictionary, Key, 'array')
   else if Result.NodeName <> 'array' then
     raise Exception.Create('Expected a plist array for ' + Key + '.');
 end;
-function TFileAssMacOSBackend.BuildPlist(Configuration: TFileAssConfiguration;
-  const TemplateFile: UTF8String; out Xml: UTF8String): TFileAssResult;
+
+function TFileAssMacOSBackend.BuildPlist(Configuration: TFileAssConfiguration; const TemplateFile: utf8string; out Xml: utf8string): TFileAssResult;
 var
   Document: TXMLDocument;
-  Root, Dictionary, Documents, Exported, Imported, Definition, DocumentType,
-    Tags, Extensions, MimeTypes, Node, ContentTypes: TDOMNode;
+  Root, Dictionary, Documents, Exported, Imported, Definition, DocumentType, Tags, Extensions, MimeTypes, Node, ContentTypes: TDOMNode;
   Types, Mimes: TStringList;
   Stream: TStringStream;
-  I, J: Integer;
+  I, J: integer;
   Item, First: TFileAssTypeItem;
-  Identifier, Role: UTF8String;
-  OwnBundle: Boolean;
-  procedure AddMissing(const Key, Value: UTF8String);
+  Identifier, Role: utf8string;
+  OwnBundle: boolean;
+
+  procedure AddMissing(const Key, Value: utf8string);
   begin
     if not Assigned(PlistValue(Dictionary, Key)) then AddString(Dictionary, Key, Value);
   end;
-  function ConfiguredOwnType(const Value: DOMString): Boolean;
-  var Index: Integer;
+
+  function ConfiguredOwnType(const Value: DOMString): boolean;
+  var
+    Index: integer;
   begin
     Result := False;
     if Pos(UTF8Decode(Configuration.ApplicationID + '.'), Value) <> 1 then Exit;
     for Index := 0 to Configuration.FileTypes.Count - 1 do
-      if Configuration.FileTypes[Index].Enabled and
-        (UTF8Decode(Configuration.FileTypes[Index].TypeIdentifier) = Value) then Exit(True);
+      if Configuration.FileTypes[Index].Enabled and (UTF8Decode(Configuration.FileTypes[Index].TypeIdentifier) = Value) then Exit(True);
   end;
-  procedure RemoveOwned(List: TDOMNode; IsDocument: Boolean);
-  var Entry, Next, Value, Child: TDOMNode; Owned, HasType: Boolean;
+
+  procedure RemoveOwned(List: TDOMNode; IsDocument: boolean);
+  var
+    Entry, Next, Value, Child: TDOMNode;
+    Owned, HasType: boolean;
   begin
     Entry := List.FirstChild;
-    while Assigned(Entry) do begin
+    while Assigned(Entry) do
+    begin
       Next := Entry.NextSibling;
-      if Entry.NodeName = 'dict' then begin
+      if Entry.NodeName = 'dict' then
+      begin
         Value := PlistValue(Entry, 'FileAssOwner');
         Owned := Assigned(Value) and (Value.TextContent = UTF8Decode(Configuration.ApplicationID));
         // Earlier output had no marker; adopt only this bundle's own UTI namespace.
-        if not Assigned(Value) and OwnBundle then begin
-          if IsDocument then begin
+        if not Assigned(Value) and OwnBundle then
+        begin
+          if IsDocument then
+          begin
             Value := PlistValue(Entry, 'LSItemContentTypes');
             Owned := Assigned(Value);
             HasType := False;
-            if Assigned(Value) then begin
+            if Assigned(Value) then
+            begin
               Child := Value.FirstChild;
-              while Assigned(Child) do begin
-                if Child.NodeType = ELEMENT_NODE then begin
+              while Assigned(Child) do
+              begin
+                if Child.NodeType = ELEMENT_NODE then
+                begin
                   HasType := True;
-                  Owned := Owned and (Child.NodeName = 'string') and
-                    ConfiguredOwnType(Child.TextContent);
+                  Owned := Owned and (Child.NodeName = 'string') and ConfiguredOwnType(Child.TextContent);
                 end;
                 Child := Child.NextSibling;
               end;
             end;
             Owned := Owned and HasType;
-          end else begin
+          end
+          else
+          begin
             Value := PlistValue(Entry, 'UTTypeIdentifier');
-            Owned := Assigned(Value) and
-              ConfiguredOwnType(Value.TextContent);
+            Owned := Assigned(Value) and ConfiguredOwnType(Value.TextContent);
           end;
         end;
-        if Owned then begin List.RemoveChild(Entry); Entry.Free; end;
+        if Owned then
+        begin
+          List.RemoveChild(Entry);
+          Entry.Free;
+        end;
       end;
       Entry := Next;
     end;
   end;
-  procedure CheckCollision(List: TDOMNode; const Identifier: UTF8String; IsDocument: Boolean);
-  var Entry, Value, Child: TDOMNode;
+
+  procedure CheckCollision(List: TDOMNode; const Identifier: utf8string; IsDocument: boolean);
+  var
+    Entry, Value, Child: TDOMNode;
   begin
     Entry := List.FirstChild;
-    while Assigned(Entry) do begin
-      if Entry.NodeName = 'dict' then begin
-        if IsDocument then begin
+    while Assigned(Entry) do
+    begin
+      if Entry.NodeName = 'dict' then
+      begin
+        if IsDocument then
+        begin
           Value := PlistValue(Entry, 'LSItemContentTypes');
-          if Assigned(Value) then begin
+          if Assigned(Value) then
+          begin
             Child := Value.FirstChild;
-            while Assigned(Child) do begin
+            while Assigned(Child) do
+            begin
               if Child.TextContent = UTF8Decode(Identifier) then
                 raise Exception.Create('The template already declares a document type for ' + Identifier + '.');
               Child := Child.NextSibling;
             end;
           end;
-        end else begin
+        end
+        else
+        begin
           Value := PlistValue(Entry, 'UTTypeIdentifier');
           if Assigned(Value) and (Value.TextContent = UTF8Decode(Identifier)) then
             raise Exception.Create('The template already declares the type ' + Identifier + '.');
@@ -151,6 +185,7 @@ var
       Entry := Entry.NextSibling;
     end;
   end;
+
 begin
   Xml := '';
   Document := nil;
@@ -161,9 +196,14 @@ begin
       Result := Configuration.Validate(fatMacOS, True);
       if not Result.Succeeded then Exit;
       OwnBundle := False;
-      if TemplateFile <> '' then begin
+      if TemplateFile <> '' then
+      begin
         Stream := TStringStream.Create(FileAssReadFile(TemplateFile));
-        try ReadXMLFile(Document, Stream); finally Stream.Free; end;
+        try
+          ReadXMLFile(Document, Stream);
+        finally
+          Stream.Free;
+        end;
         Root := Document.DocumentElement;
         if Root.NodeName <> 'plist' then raise Exception.Create('Expected an XML plist template.');
         Dictionary := Root.FindNode('dict');
@@ -172,7 +212,9 @@ begin
         if Assigned(Node) and (Node.TextContent <> UTF8Decode(Configuration.ApplicationID)) then
           raise Exception.Create('The bundle identifier belongs to a different application.');
         OwnBundle := Assigned(Node);
-      end else begin
+      end
+      else
+      begin
         Document := TXMLDocument.Create;
         Root := Document.CreateElement('plist');
         TDOMElement(Root).SetAttribute('version', '1.0');
@@ -185,13 +227,14 @@ begin
       AddMissing('CFBundleExecutable', ExtractFileName(Configuration.ExecutablePath));
       AddMissing('CFBundlePackageType', 'APPL');
       AddMissing('CFBundleInfoDictionaryVersion', '6.0');
-      if Configuration.MacApplicationIcon <> '' then begin
-        if (ExtractFileName(Configuration.MacApplicationIcon) <> Configuration.MacApplicationIcon) or
-          (Pos('\', Configuration.MacApplicationIcon) > 0) then
+      if Configuration.MacApplicationIcon <> '' then
+      begin
+        if (ExtractFileName(Configuration.MacApplicationIcon) <> Configuration.MacApplicationIcon) or (Pos('\', Configuration.MacApplicationIcon) > 0) then
           raise Exception.Create('MacApplicationIcon must name a file in the bundle Resources directory.');
         Node := PlistValue(Dictionary, 'CFBundleIconFile');
         if Assigned(Node) and OwnBundle then Node.TextContent := UTF8Decode(Configuration.MacApplicationIcon)
-        else AddMissing('CFBundleIconFile', Configuration.MacApplicationIcon);
+        else
+          AddMissing('CFBundleIconFile', Configuration.MacApplicationIcon);
       end;
       Documents := PlistArray(Dictionary, 'CFBundleDocumentTypes');
       Exported := PlistArray(Dictionary, 'UTExportedTypeDeclarations');
@@ -200,18 +243,18 @@ begin
       RemoveOwned(Exported, False);
       RemoveOwned(Imported, False);
       for I := 0 to Configuration.FileTypes.Count - 1 do
-        if Configuration.FileTypes[I].Enabled and
-          (Types.IndexOf(Configuration.FileTypes[I].TypeIdentifier) < 0) then
+        if Configuration.FileTypes[I].Enabled and (Types.IndexOf(Configuration.FileTypes[I].TypeIdentifier) < 0) then
           Types.Add(Configuration.FileTypes[I].TypeIdentifier);
-      for I := 0 to Types.Count - 1 do begin
+      for I := 0 to Types.Count - 1 do
+      begin
         Identifier := Types[I];
         CheckCollision(Documents, Identifier, True);
         CheckCollision(Exported, Identifier, False);
         CheckCollision(Imported, Identifier, False);
         First := nil;
         for J := 0 to Configuration.FileTypes.Count - 1 do
-          if Configuration.FileTypes[J].Enabled and
-            (Configuration.FileTypes[J].TypeIdentifier = Identifier) then begin
+          if Configuration.FileTypes[J].Enabled and (Configuration.FileTypes[J].TypeIdentifier = Identifier) then
+          begin
             First := Configuration.FileTypes[J];
             Break;
           end;
@@ -222,13 +265,17 @@ begin
         case First.Role of
           farEditor: Role := 'Editor';
           farViewer: Role := 'Viewer';
-        else Role := 'None'; end;
+          else
+            Role := 'None';
+        end;
         AddString(DocumentType, 'CFBundleTypeRole', Role);
         // Owner of its own exported types; a polite alternate for foreign ones.
         if Pos(Configuration.ApplicationID + '.', Identifier) = 1 then
           AddString(DocumentType, 'LSHandlerRank', 'Owner')
-        else AddString(DocumentType, 'LSHandlerRank', 'Alternate');
-        if First.MacIcon <> '' then begin
+        else
+          AddString(DocumentType, 'LSHandlerRank', 'Alternate');
+        if First.MacIcon <> '' then
+        begin
           if ExtractFileName(First.MacIcon) <> First.MacIcon then
             raise Exception.Create('MacIcon must name a file in the bundle Resources directory.');
           AddString(DocumentType, 'CFBundleTypeIconFile', First.MacIcon);
@@ -237,7 +284,8 @@ begin
         AddArrayString(ContentTypes, Identifier);
         Definition := Document.CreateElement('dict');
         if Pos(Configuration.ApplicationID + '.', Identifier) = 1 then Exported.AppendChild(Definition)
-        else Imported.AppendChild(Definition);
+        else
+          Imported.AppendChild(Definition);
         AddString(Definition, 'FileAssOwner', Configuration.ApplicationID);
         AddString(Definition, 'UTTypeIdentifier', Identifier);
         AddString(Definition, 'UTTypeDescription', First.Description);
@@ -249,28 +297,41 @@ begin
         Extensions := AddValue(Tags, 'public.filename-extension', 'array');
         MimeTypes := AddValue(Tags, 'public.mime-type', 'array');
         Mimes.Clear;
-        for J := 0 to Configuration.FileTypes.Count - 1 do begin
+        for J := 0 to Configuration.FileTypes.Count - 1 do
+        begin
           Item := Configuration.FileTypes[J];
           if not Item.Enabled or (Item.TypeIdentifier <> Identifier) then Continue;
-          if (Item.Description <> First.Description) or (Item.Role <> First.Role) or
-            (Item.MacIcon <> First.MacIcon) then
+          if (Item.Description <> First.Description) or (Item.Role <> First.Role) or (Item.MacIcon <> First.MacIcon) then
             raise Exception.Create('Extensions sharing a type identifier require consistent metadata.');
           AddArrayString(Extensions, Copy(Item.Extension, 2, MaxInt));
-          if (Item.MimeType <> '') and (Mimes.IndexOf(Item.MimeType) < 0) then begin
+          if (Item.MimeType <> '') and (Mimes.IndexOf(Item.MimeType) < 0) then
+          begin
             Mimes.Add(Item.MimeType);
             AddArrayString(MimeTypes, Item.MimeType);
           end;
         end;
       end;
       Stream := TStringStream.Create('');
-      try WriteXMLFile(Document, Stream); Xml := Stream.DataString; finally Stream.Free; end;
+      try
+        WriteXMLFile(Document, Stream);
+        Xml := Stream.DataString;
+      finally
+        Stream.Free;
+      end;
       Result := FileAssResult(farSuccess, 'Bundle metadata generated. macOS integration testing is required.');
-    except on E: Exception do Result := FileAssFailure(E); end;
-  finally Document.Free; Mimes.Free; Types.Free; end;
+    except
+      on E: Exception do Result := FileAssFailure(E);
+    end;
+  finally
+    Document.Free;
+    Mimes.Free;
+    Types.Free;
+  end;
 end;
-function TFileAssMacOSBackend.GenerateMergedPlist(Configuration: TFileAssConfiguration;
-  const TemplateFile, OutputFile: UTF8String): TFileAssResult;
-var Xml: UTF8String;
+
+function TFileAssMacOSBackend.GenerateMergedPlist(Configuration: TFileAssConfiguration; const TemplateFile, OutputFile: utf8string): TFileAssResult;
+var
+  Xml: utf8string;
 begin
   try
     Result := BuildPlist(Configuration, TemplateFile, Xml);
@@ -278,11 +339,14 @@ begin
     if FileExists(OutputFile) then
       Exit(FileAssResult(farOperationFailed, 'The output plist already exists.'));
     FileAssWriteFile(OutputFile, Xml);
-  except on E: Exception do Result := FileAssFailure(E); end;
+  except
+    on E: Exception do Result := FileAssFailure(E);
+  end;
 end;
-function TFileAssMacOSBackend.GenerateDeploymentFiles(Configuration: TFileAssConfiguration;
-  const OutputDirectory: UTF8String): TFileAssResult;
-var Xml, Path: UTF8String;
+
+function TFileAssMacOSBackend.GenerateDeploymentFiles(Configuration: TFileAssConfiguration; const OutputDirectory: utf8string): TFileAssResult;
+var
+  Xml, Path: utf8string;
 begin
   try
     Result := BuildPlist(Configuration, '', Xml);
@@ -293,31 +357,39 @@ begin
     if not ForceDirectories(OutputDirectory) then raise Exception.Create('Cannot create output directory.');
     FileAssWriteFile(Path + 'Info.plist', Xml);
     FileAssWriteFile(Path + 'manifest.txt', 'Info.plist' + #10);
-  except on E: Exception do Result := FileAssFailure(E); end;
+  except
+    on E: Exception do Result := FileAssFailure(E);
+  end;
 end;
+
 function TFileAssMacOSBackend.Preview(Configuration: TFileAssConfiguration; Text: TStrings): TFileAssResult;
-var Xml: UTF8String;
+var
+  Xml: utf8string;
 begin
   Text.Clear;
   Result := BuildPlist(Configuration, '', Xml);
   if Result.Succeeded then Text.Text := Xml;
 end;
+
 function TFileAssMacOSBackend.RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
 begin
   Result := FileAssResult(farRequiresDeployment, 'Install an application bundle containing the generated Info.plist.');
 end;
+
 function TFileAssMacOSBackend.UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
 begin
   Result := FileAssResult(farRequiresDeployment, 'Remove the installed application bundle through its installer.');
 end;
-function TFileAssMacOSBackend.GetStatus(Configuration: TFileAssConfiguration;
-  out Diagnostic: TFileAssResult): TFileAssStatus;
+
+function TFileAssMacOSBackend.GetStatus(Configuration: TFileAssConfiguration; out Diagnostic: TFileAssResult): TFileAssStatus;
 begin
   Diagnostic := FileAssResult(farUnsupported, 'Launch Services inspection requires macOS testing.');
   Result := fasUnavailable;
 end;
+
 function TFileAssMacOSBackend.OpenDefaultAppsSettings: TFileAssResult;
 begin
   Result := FileAssResult(farUnsupported, 'Choose a handler in Finder Get Info, under Open With.');
 end;
+
 end.

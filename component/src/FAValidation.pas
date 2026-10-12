@@ -1,25 +1,34 @@
 unit FAValidation;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
+
 uses SysUtils, FATypes, FACollection;
-function FileAssValidIdentifier(const Value: UTF8String): Boolean;
-function FileAssContainsControl(const Value: UTF8String): Boolean;
-function FileAssValidate(const ApplicationID, ApplicationName,
-  ExecutablePath: UTF8String; FileTypes: TFileAssTypeCollection;
-  Target: TFileAssTarget): TFileAssResult;
+
+function FileAssValidIdentifier(const Value: utf8string): boolean;
+function FileAssContainsControl(const Value: utf8string): boolean;
+function FileAssValidate(const ApplicationID, ApplicationName, ExecutablePath: utf8string; FileTypes: TFileAssTypeCollection; Target: TFileAssTarget): TFileAssResult;
+
 implementation
-function FileAssValidIdentifier(const Value: UTF8String): Boolean;
-var I: Integer; StartOfPart: Boolean; Parts: Integer;
+
+function FileAssValidIdentifier(const Value: utf8string): boolean;
+var
+  I: integer;
+  StartOfPart: boolean;
+  Parts: integer;
 begin
   Result := False;
   StartOfPart := True;
   Parts := 1;
-  for I := 1 to Length(Value) do begin
-    if Value[I] = '.' then begin
+  for I := 1 to Length(Value) do
+  begin
+    if Value[I] = '.' then
+    begin
       if StartOfPart then Exit;
       StartOfPart := True;
       Inc(Parts);
-    end else begin
+    end
+    else
+    begin
       if StartOfPart and not (Value[I] in ['a'..'z', 'A'..'Z']) then Exit;
       if not (Value[I] in ['a'..'z', 'A'..'Z', '0'..'9', '-']) then Exit;
       StartOfPart := False;
@@ -27,16 +36,20 @@ begin
   end;
   Result := not StartOfPart and (Parts >= 2);
 end;
-function FileAssContainsControl(const Value: UTF8String): Boolean;
-var I: Integer;
+
+function FileAssContainsControl(const Value: utf8string): boolean;
+var
+  I: integer;
 begin
   Result := True;
   for I := 1 to Length(Value) do
     if Ord(Value[I]) < 32 then Exit;
   Result := False;
 end;
-function ValidExtension(const Value: UTF8String): Boolean;
-var I: Integer;
+
+function ValidExtension(const Value: utf8string): boolean;
+var
+  I: integer;
 begin
   Result := False;
   if (Length(Value) < 2) or (Value[1] <> '.') then Exit;
@@ -44,21 +57,23 @@ begin
     if not (Value[I] in ['a'..'z', '0'..'9', '_', '-']) then Exit;
   Result := True;
 end;
-function ValidMime(const Value: UTF8String): Boolean;
-var I, Slash: Integer;
+
+function ValidMime(const Value: utf8string): boolean;
+var
+  I, Slash: integer;
 begin
   Result := False;
   Slash := Pos('/', Value);
   if (Slash <= 1) or (Slash = Length(Value)) then Exit;
   for I := 1 to Length(Value) do
-    if (I <> Slash) and not (Value[I] in
-      ['a'..'z', 'A'..'Z', '0'..'9', '!', '#', '$', '&', '^', '_', '.', '+', '-']) then Exit;
+    if (I <> Slash) and not (Value[I] in ['a'..'z', 'A'..'Z', '0'..'9', '!', '#', '$', '&', '^', '_', '.', '+', '-']) then Exit;
   Result := True;
 end;
-function FileAssValidate(const ApplicationID, ApplicationName,
-  ExecutablePath: UTF8String; FileTypes: TFileAssTypeCollection;
-  Target: TFileAssTarget): TFileAssResult;
-var I, J, EnabledCount: Integer; Item: TFileAssTypeItem;
+
+function FileAssValidate(const ApplicationID, ApplicationName, ExecutablePath: utf8string; FileTypes: TFileAssTypeCollection; Target: TFileAssTarget): TFileAssResult;
+var
+  I, J, EnabledCount: integer;
+  Item: TFileAssTypeItem;
 begin
   Result := FileAssResult(farInvalidConfiguration, 'Invalid application identifier.');
   if not FileAssValidIdentifier(ApplicationID) then Exit;
@@ -67,14 +82,16 @@ begin
   Result.Message := 'An explicit executable path without control characters is required.';
   if (ExecutablePath = '') or FileAssContainsControl(ExecutablePath) then Exit;
   Result.Message := 'The executable path must be absolute for the target platform.';
-  if Target = fatWindows then begin
-    if not (((Length(ExecutablePath) >= 3) and (ExecutablePath[2] = ':') and
-      (ExecutablePath[3] in ['\', '/'])) or (Copy(ExecutablePath, 1, 2) = '\\')) then Exit;
+  if Target = fatWindows then
+  begin
+    if not (((Length(ExecutablePath) >= 3) and (ExecutablePath[2] = ':') and (ExecutablePath[3] in ['\', '/'])) or (Copy(ExecutablePath, 1, 2) = '\\')) then Exit;
     Result.Message := 'Windows executable paths cannot contain double quotes.';
     if Pos('"', ExecutablePath) > 0 then Exit;
-  end else if ExecutablePath[1] <> '/' then Exit;
+  end
+  else if ExecutablePath[1] <> '/' then Exit;
   EnabledCount := 0;
-  for I := 0 to FileTypes.Count - 1 do begin
+  for I := 0 to FileTypes.Count - 1 do
+  begin
     Item := FileTypes[I];
     if not Item.Enabled then Continue;
     Inc(EnabledCount);
@@ -82,14 +99,14 @@ begin
     Result.Message := 'Invalid file extension.';
     if not ValidExtension(Item.Extension) then Exit;
     for J := 0 to I - 1 do
-      if FileTypes[J].Enabled and SameText(FileTypes[J].Extension, Item.Extension) then begin
+      if FileTypes[J].Enabled and SameText(FileTypes[J].Extension, Item.Extension) then
+      begin
         Result.Message := 'Duplicate enabled file extension.';
         Exit;
       end;
     Result.Message := 'File type properties must not contain control characters.';
-    if FileAssContainsControl(Item.Description) or FileAssContainsControl(Item.OpenArguments) or
-      FileAssContainsControl(Item.WindowsIcon) or FileAssContainsControl(Item.LinuxIcon) or
-      FileAssContainsControl(Item.MacIcon) then Exit;
+    if FileAssContainsControl(Item.Description) or FileAssContainsControl(Item.OpenArguments) or FileAssContainsControl(Item.WindowsIcon) or
+      FileAssContainsControl(Item.LinuxIcon) or FileAssContainsControl(Item.MacIcon) then Exit;
     Result.Message := 'A valid MIME type is required for Linux.';
     if (Target = fatLinux) and not ValidMime(Item.MimeType) then Exit;
     Result.Message := 'A valid type identifier is required for macOS.';
@@ -100,6 +117,8 @@ begin
   if EnabledCount = 0 then Exit;
   if Target = fatUnavailable then
     Result := FileAssResult(farUnsupported, 'The target platform is unavailable.')
-  else Result := FileAssResult(farSuccess, 'Configuration is valid.');
+  else
+    Result := FileAssResult(farSuccess, 'Configuration is valid.');
 end;
+
 end.

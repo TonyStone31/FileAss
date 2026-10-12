@@ -1,15 +1,17 @@
 unit FileAssInstance;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
+
 uses Classes, ExtCtrls, FileAssMan, FAInstanceCore, FATypes;
+
 type
   TFileAssInstance = class(TFileAssInstanceManager)
   private
     Associations: TFileAssMan;
-    StartupEnabled, AutomaticReady, QuitSecondary, OwnerCreating, NativeFiles: Boolean;
+    StartupEnabled, AutomaticReady, QuitSecondary, OwnerCreating, NativeFiles: boolean;
     MessageTimer: TTimer;
     procedure SetAssociations(Value: TFileAssMan);
-    procedure SetEnabled(Value: Boolean);
+    procedure SetEnabled(Value: boolean);
     procedure CheckMessages(Sender: TObject);
     procedure AfterStartup(Data: PtrInt);
     procedure OwnerCreated(Sender: TObject);
@@ -18,7 +20,7 @@ type
   protected
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
-    procedure SetReady(Value: Boolean); override;
+    procedure SetReady(Value: boolean); override;
     procedure ActivateRequested; override;
     procedure Report(const Value: TFileAssResult); override;
   public
@@ -30,7 +32,7 @@ type
     // Default False. True starts instance handling when the form loads. At runtime,
     // setting True starts and False stops it. The designer never starts instance handling;
     // this property does not register file associations. Explicit Start is also available.
-    property Enabled: Boolean read StartupEnabled write SetEnabled default False;
+    property Enabled: boolean read StartupEnabled write SetEnabled default False;
     // Optional association component supplying ApplicationID when Start runs.
     // When assigned, its ID takes precedence over this component's ApplicationID.
     // Linking it does not register associations. Stop before changing this reference.
@@ -38,18 +40,21 @@ type
     // Default True. Routes LCL file-open/drop notifications through OnParameters
     // in forwarding mode, using the same readiness gate. Disable if your application
     // already handles these notifications, to avoid processing a file twice.
-    property HandleFileOpenEvents: Boolean read NativeFiles write NativeFiles default True;
+    property HandleFileOpenEvents: boolean read NativeFiles write NativeFiles default True;
     // Default True. Marks the primary ready after normal owner-form creation.
     // Set False if initialization continues afterward, then set ReadyForParameters=True
     // yourself when the application can handle files. Ownership is claimed immediately.
-    property AutoReady: Boolean read AutomaticReady write AutomaticReady default True;
+    property AutoReady: boolean read AutomaticReady write AutomaticReady default True;
     // Default True. Secondary or failed launches terminate without showing the main
     // form. False leaves shutdown to your code. FormCreate can still run; skip primary-only
     // startup work there when Role is not firPrimary.
-    property AutoTerminateSecondary: Boolean read QuitSecondary write QuitSecondary default True;
+    property AutoTerminateSecondary: boolean read QuitSecondary write QuitSecondary default True;
   end;
+
 implementation
+
 uses SysUtils, Forms, Dialogs;
+
 constructor TFileAssInstance.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -61,11 +66,13 @@ begin
   MessageTimer.Interval := 50;
   MessageTimer.OnTimer := @CheckMessages;
 end;
+
 destructor TFileAssInstance.Destroy;
 begin
   Stop;
   inherited Destroy;
 end;
+
 procedure TFileAssInstance.SetAssociations(Value: TFileAssMan);
 begin
   if Value = Associations then Exit;
@@ -74,97 +81,129 @@ begin
   Associations := Value;
   if Assigned(Associations) then Associations.FreeNotification(Self);
 end;
+
 procedure TFileAssInstance.Notification(AComponent: TComponent; Operation: TOperation);
 begin
   inherited Notification(AComponent, Operation);
   if (Operation = opRemove) and (AComponent = Associations) then Associations := nil;
 end;
-procedure TFileAssInstance.SetEnabled(Value: Boolean);
+
+procedure TFileAssInstance.SetEnabled(Value: boolean);
 begin
   StartupEnabled := Value;
   if (csLoading in ComponentState) or (csDesigning in ComponentState) then Exit;
-  if Value then Start else Stop;
+  if Value then Start
+  else
+    Stop;
 end;
+
 procedure TFileAssInstance.Loaded;
 begin
   inherited Loaded;
   if StartupEnabled and not (csDesigning in ComponentState) then Start;
 end;
+
 function TFileAssInstance.Start: TFileAssInstanceRole;
 begin
   if csDesigning in ComponentState then Exit(firStopped);
   if Role = firPrimary then Exit(Role);
   if Assigned(Associations) then ApplicationID := Associations.ApplicationID;
   Result := inherited Start;
-  if Result = firPrimary then begin
+  if Result = firPrimary then
+  begin
     MessageTimer.Interval := 50;
     MessageTimer.Enabled := True;
     Application.AddOnDropFilesHandler(@FilesOpened);
-    if (Owner is TCustomForm) and (fsCreating in TCustomForm(Owner).FormState) then begin
+    if (Owner is TCustomForm) and (fsCreating in TCustomForm(Owner).FormState) then
+    begin
       OwnerCreating := True;
       TCustomForm(Owner).AddHandlerCreate(@OwnerCreated);
-    end else Application.QueueAsyncCall(@AfterStartup, 0);
-  end else if QuitSecondary then begin
+    end
+    else
+      Application.QueueAsyncCall(@AfterStartup, 0);
+  end
+  else if QuitSecondary then
+  begin
     Application.ShowMainForm := False;
     Application.Terminate;
   end;
 end;
+
 procedure TFileAssInstance.OwnerCreated(Sender: TObject);
 begin
   if not OwnerCreating then Exit;
   OwnerCreating := False;
   Application.QueueAsyncCall(@AfterStartup, 0);
 end;
+
 procedure TFileAssInstance.AfterStartup(Data: PtrInt);
 begin
   if Role <> firPrimary then Exit;
   if AutoReady then ReadyForParameters := True;
   Poll;
 end;
-procedure TFileAssInstance.SetReady(Value: Boolean);
+
+procedure TFileAssInstance.SetReady(Value: boolean);
 begin
   if Value = ReadyForParameters then Exit;
   inherited SetReady(Value);
   if Value and (Role = firPrimary) and not (csDestroying in ComponentState) then
     Application.QueueAsyncCall(@DeliverPending, 0);
 end;
+
 procedure TFileAssInstance.DeliverPending(Data: PtrInt);
-begin if not OwnerCreating then Poll; end;
+begin
+  if not OwnerCreating then Poll;
+end;
+
 procedure TFileAssInstance.CheckMessages(Sender: TObject);
 begin
   if OwnerCreating then Exit;
   Poll;
   // Poll briskly around startup and recent deliveries, gently once idle.
   if GetTickCount64 - LastActivity > 10000 then MessageTimer.Interval := 250
-  else MessageTimer.Interval := 50;
+  else
+    MessageTimer.Interval := 50;
 end;
+
 procedure TFileAssInstance.FilesOpened(Sender: TObject; const FileNames: array of string);
-var Parameters: TStringList; I: Integer;
+var
+  Parameters: TStringList;
+  I: integer;
 begin
   if not HandleFileOpenEvents or (Mode <> fimForwardParameters) then Exit;
   Parameters := TStringList.Create;
   try
     for I := Low(FileNames) to High(FileNames) do Parameters.Add(FileNames[I]);
     QueueParameters(Parameters, FileAssWorkingDirectory);
-  finally Parameters.Free; end;
+  finally
+    Parameters.Free;
+  end;
 end;
+
 procedure TFileAssInstance.ActivateRequested;
-var Target: TCustomForm;
+var
+  Target: TCustomForm;
 begin
   if Assigned(OnActivateRequested) then inherited ActivateRequested
-  else begin
-    if Owner is TCustomForm then Target := TCustomForm(Owner) else Target := Application.MainForm;
+  else
+  begin
+    if Owner is TCustomForm then Target := TCustomForm(Owner)
+    else
+      Target := Application.MainForm;
     if not Assigned(Target) then Exit;
     if Target.WindowState = wsMinimized then Target.WindowState := wsNormal;
     Target.Show;
     Target.BringToFront;
   end;
 end;
+
 procedure TFileAssInstance.Report(const Value: TFileAssResult);
 begin
   inherited Report(Value);
   if not Value.Succeeded and not Assigned(OnError) then ShowMessage(Value.Message);
 end;
+
 procedure TFileAssInstance.Stop;
 begin
   if Assigned(MessageTimer) then MessageTimer.Enabled := False;
@@ -175,4 +214,5 @@ begin
   Application.RemoveOnDropFilesHandler(@FilesOpened);
   inherited Stop;
 end;
+
 end.
