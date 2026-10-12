@@ -1,20 +1,60 @@
 program FileAssConsole;
 {$mode objfpc}{$H+}{$codepage utf8}
-uses Classes, SysUtils, FACore, FATypes;
-var Manager: TFileAssManager; Outcome: TFileAssResult; Action, FileName: UTF8String;
-  I: Integer;
-begin
-  if (ParamCount > 0) and (ParamStr(1) = '--') then begin
-    for I := 2 to ParamCount do begin
-      FileName := ParamStr(I);
-      if FileExists(UTF8Decode(FileName)) then WriteLn(FileName);
-    end;
-    Halt(0);
+uses Classes, SysUtils, FACore, FATypes, FAInstanceCore;
+type
+  TConsoleReceiver = class
+    procedure Parameters(Sender: TObject; Values: TStrings;
+      const Directory: UTF8String; Initial: Boolean);
+    procedure Error(Sender: TObject; const Outcome: TFileAssResult);
   end;
+procedure TConsoleReceiver.Parameters(Sender: TObject; Values: TStrings;
+  const Directory: UTF8String; Initial: Boolean);
+var I: Integer;
+begin
+  WriteLn('Working directory: ', Directory);
+  for I := 0 to Values.Count - 1 do WriteLn(Values[I]);
+  Flush(Output);
+end;
+procedure TConsoleReceiver.Error(Sender: TObject; const Outcome: TFileAssResult);
+begin WriteLn(StdErr, Outcome.Message); end;
+procedure RunInstanceDemo(Listen: Boolean);
+var Instance: TFileAssInstanceManager; Receiver: TConsoleReceiver; Args: TStringList;
+begin
+  Instance := TFileAssInstanceManager.Create(nil);
+  Receiver := TConsoleReceiver.Create;
+  Args := TStringList.Create;
+  try
+    Instance.ApplicationID := 'org.example.fileass.console';
+    Instance.Mode := fimForwardParameters;
+    Instance.OnParameters := @Receiver.Parameters;
+    Instance.OnError := @Receiver.Error;
+    if not Listen then FileAssStartupParameters(Args);
+    case Instance.Start(Args, FileAssWorkingDirectory) of
+      firPrimary: begin
+        Instance.ReadyForParameters := True;
+        if Listen then WriteLn('Listening for parameters. Press Ctrl+C to stop.');
+        repeat
+          Instance.Poll;
+          if Listen then Sleep(20);
+        until not Listen;
+      end;
+      firFailed: ExitCode := 1;
+    end;
+  finally Args.Free; Receiver.Free; Instance.Free; end;
+end;
+var Manager: TFileAssManager; Outcome: TFileAssResult; Action: UTF8String;
+begin
   if ParamCount = 0 then begin
     WriteLn('Usage: FileAssConsole validate|register|remove|status|generate [output-directory]');
+    WriteLn('       FileAssConsole listen');
+    WriteLn('       FileAssConsole -- [parameters to deliver]');
+    Exit;
   end;
-  if ParamCount = 0 then Halt(0);
+  Action := UTF8String(ParamStr(1));
+  if (Action = '--') or (Action = 'listen') then begin
+    RunInstanceDemo(Action = 'listen');
+    Exit;
+  end;
   Manager := TFileAssManager.Create;
   try
     Manager.Configuration.ApplicationID := 'org.example.fileass.console';
@@ -26,7 +66,6 @@ begin
       TypeIdentifier := 'org.example.fileass.console.note';
       OpenArguments := '--';
     end;
-    Action := ParamStr(1);
     if Action = 'validate' then Outcome := Manager.Validate
     else if Action = 'register' then Outcome := Manager.RegisterAll
     else if Action = 'remove' then Outcome := Manager.UnregisterAll

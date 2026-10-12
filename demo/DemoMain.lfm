@@ -1,189 +1,195 @@
 object DemoForm: TDemoForm
-  Left = 200
+  Left = 658
   Height = 640
-  Top = 120
+  Top = 1185
   Width = 1000
   Caption = 'FileAss Demo'
   ClientHeight = 640
   ClientWidth = 1000
-  OnCreate = FormCreate
-  OnDestroy = FormDestroy
   Position = poScreenCenter
+  LCLVersion = '5.99.0.0'
+  OnCreate = FormCreate
   object ActionsPanel: TPanel
-    Align = alTop
+    Left = 0
     Height = 164
+    Top = 0
     Width = 1000
+    Align = alTop
     BevelOuter = bvNone
+    ClientHeight = 164
+    ClientWidth = 1000
     TabOrder = 0
     object RegisterButton: TButton
       Left = 16
+      Height = 36
       Top = 12
       Width = 340
-      Height = 36
       Caption = '1. Register File Types on This System'
-      OnClick = RegisterButtonClick
       TabOrder = 0
+      OnClick = RegisterButtonClick
     end
     object ValidateButton: TButton
       Left = 372
+      Height = 36
       Top = 12
       Width = 300
-      Height = 36
       Caption = '2. Verify System Registration'
-      OnClick = ValidateButtonClick
       TabOrder = 1
+      OnClick = ValidateButtonClick
+    end
+    object MenuEntry: TCheckBox
+      Left = 696
+      Height = 22
+      Hint = 'Include a launcher when you register or export; removal removes it too'
+      Top = 18
+      Width = 244
+      Caption = 'Add to Applications menu (Linux)'
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 2
     end
     object NoteIcon: TImage
+      Cursor = crHandPoint
       Left = 16
+      Height = 48
+      Hint = 'Show this sample in the system file manager'
       Top = 68
       Width = 48
-      Height = 48
-      Cursor = crHandPoint
-      Hint = 'Show this sample in the system file manager'
-      ShowHint = True
-      OnClick = SampleIconClick
+      ParentShowHint = False
       Proportional = True
+      ShowHint = True
       Stretch = True
+      OnClick = SampleIconClick
     end
     object NoteLabel: TLabel
-      Left = 76
-      Top = 82
-      Caption = '3. Find Blue Note (.fanote)'
       Cursor = crHandPoint
+      Left = 76
+      Height = 17
+      Top = 82
+      Width = 179
+      Caption = '3. Find Blue Note (.fanote)'
       OnClick = SampleIconClick
     end
     object SketchIcon: TImage
+      Cursor = crHandPoint
       Left = 394
+      Height = 48
+      Hint = 'Show this sample in the system file manager'
       Top = 68
       Width = 48
-      Height = 48
-      Cursor = crHandPoint
-      Hint = 'Show this sample in the system file manager'
-      ShowHint = True
-      OnClick = SampleIconClick
+      ParentShowHint = False
       Proportional = True
+      ShowHint = True
       Stretch = True
+      OnClick = SampleIconClick
     end
     object SketchLabel: TLabel
-      Left = 454
-      Top = 82
-      Caption = '3. Find Amber Sketch (.fasketch)'
       Cursor = crHandPoint
+      Left = 454
+      Height = 17
+      Top = 82
+      Width = 216
+      Caption = '3. Find Amber Sketch (.fasketch)'
       OnClick = SampleIconClick
     end
     object HintLabel: TLabel
       Left = 16
+      Height = 17
       Top = 132
+      Width = 849
       Caption = 'Click an icon to select its sample in your file manager, then double-click the file. Use Open With to choose this demo if needed.'
     end
   end
   object UtilitiesPanel: TPanel
-    Align = alBottom
+    Left = 0
     Height = 60
+    Top = 580
+    Width = 1000
+    Align = alBottom
     BevelOuter = bvNone
+    ClientHeight = 60
+    ClientWidth = 1000
     TabOrder = 2
     object RemoveButton: TButton
       Left = 12
+      Height = 36
       Top = 12
       Width = 242
-      Height = 36
-      Caption = 'Remove Demo File Associations'
-      OnClick = RemoveButtonClick
+      Caption = 'Remove Demo Registration'
       TabOrder = 0
-    end
-    object RefreshButton: TButton
-      Left = 262
-      Top = 12
-      Width = 218
-      Height = 36
-      Caption = 'Refresh System File Types'
-      OnClick = RefreshButtonClick
-      TabOrder = 1
+      OnClick = RemoveButtonClick
     end
     object DefaultsButton: TButton
-      Left = 488
-      Top = 12
-      Width = 236
+      Left = 262
       Height = 36
-      Caption = 'Open Default Applications...'
+      Top = 12
+      Width = 300
+      Caption = 'System Default Applications...'
+      TabOrder = 1
       OnClick = DefaultsButtonClick
-      TabOrder = 2
     end
     object GenerateButton: TButton
-      Left = 732
-      Top = 12
-      Width = 252
+      Left = 570
       Height = 36
-      Caption = 'Generate Installer Resources...'
+      Hint = 'Export files for packaging; this does not install associations'
+      Top = 12
+      Width = 300
+      Caption = 'Export Association Files...'
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 2
       OnClick = GenerateButtonClick
-      TabOrder = 3
     end
   end
   object Pages: TPageControl
-    Align = alClient
-    Top = 164
+    Left = 0
     Height = 416
+    Top = 164
     Width = 1000
     ActivePage = ResultsTab
+    Align = alClient
+    TabIndex = 0
     TabOrder = 1
     object ResultsTab: TTabSheet
-      Caption = 'Registration & Opening Files'
+      Caption = 'Registration'
+      ClientHeight = 388
+      ClientWidth = 998
       object ResultsMemo: TMemo
+        Left = 0
+        Height = 388
+        Top = 0
+        Width = 998
         Align = alClient
         ReadOnly = True
         ScrollBars = ssAutoBoth
+        TabOrder = 0
         WordWrap = False
-        TabOrder = 0
-      end
-    end
-    object SystemTab: TTabSheet
-      Caption = 'System File Types'
-      object BrowserPanel: TPanel
-        Align = alTop
-        Height = 48
-        BevelOuter = bvNone
-        TabOrder = 0
-        object FilterLabel: TLabel
-          Left = 12
-          Top = 15
-          Caption = 'Filter:'
-        end
-        object FilterEdit: TEdit
-          Left = 66
-          Top = 10
-          Width = 370
-          OnChange = FilterChanged
-          TabOrder = 0
-        end
-        object DemoOnly: TCheckBox
-          Left = 460
-          Top = 13
-          Width = 180
-          Caption = 'Only demo file types'
-          Checked = True
-          State = cbChecked
-          OnChange = FilterChanged
-          TabOrder = 1
-        end
-      end
-      object TypesGrid: TStringGrid
-        Align = alClient
-        ColCount = 3
-        DefaultColWidth = 300
-        FixedCols = 0
-        RowCount = 2
-        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goColSizing, goRowSelect]
-        TabOrder = 1
       end
     end
     object OpenedTab: TTabSheet
-      Caption = 'Received Documents'
+      Caption = 'Files Received by This Instance'
+      ClientHeight = 388
+      ClientWidth = 998
+      object InstanceLabel: TLabel
+        Left = 0
+        Height = 40
+        Top = 0
+        Width = 998
+        Align = alTop
+        AutoSize = False
+        Caption = 'Keep this window open, then open more sample files. New launches forward their files to this instance and exit.'
+        WordWrap = True
+      end
       object OpenedMemo: TMemo
+        Left = 0
+        Height = 348
+        Top = 40
+        Width = 998
         Align = alClient
         ReadOnly = True
         ScrollBars = ssAutoBoth
-        WordWrap = False
         TabOrder = 0
+        WordWrap = False
       end
     end
   end
@@ -191,6 +197,7 @@ object DemoForm: TDemoForm
     ApplicationID = 'org.example.fileass.demo'
     ApplicationName = 'FileAss Demo'
     ApplicationDescription = 'FileAss document opening demonstration'
+    SupportsMultipleFiles = True
     FileTypes = <
       item
         Extension = '.fanote'
@@ -210,12 +217,15 @@ object DemoForm: TDemoForm
         LinuxIcon = 'icons/amber-sketch.svg'
         OpenArguments = '--'
       end>
-    Left = 736
-    Top = 88
+    Left = 758
+    Top = 64
   end
-  object OutputDialog: TSelectDirectoryDialog
-    Title = 'Choose an empty deployment output directory'
-    Left = 816
-    Top = 88
+  object FileAssInstance: TFileAssInstance
+    Mode = fimForwardParameters
+    OnParameters = StartupParameters
+    Enabled = True
+    FileAssMan = FileAssMan
+    Left = 888
+    Top = 63
   end
 end

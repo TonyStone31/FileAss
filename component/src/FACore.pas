@@ -7,6 +7,8 @@ type
   private
     AppIdentifier, AppName, AppDescription, ProgramPath: UTF8String;
     InstallScope: TFileAssScope;
+    MultipleDocuments, MenuEntry: Boolean;
+    LinuxAppIcon, MacAppIcon: UTF8String;
     DocumentTypes: TFileAssTypeCollection;
     procedure SetFileTypes(Value: TFileAssTypeCollection);
   public
@@ -15,11 +17,35 @@ type
     function Validate(Target: TFileAssTarget; DesignMode: Boolean = False): TFileAssResult;
     function ResolveExecutable(DesignMode: Boolean): UTF8String;
   published
+    // Stable reverse-domain ID, such as org.example.notepad. Required for ownership;
+    // keep it unchanged between releases so upgrades and removal find the same registrations.
     property ApplicationID: UTF8String read AppIdentifier write AppIdentifier;
+    // Required application display name, such as My Notepad. Shown in application
+    // choosers and generated registration resources.
     property ApplicationName: UTF8String read AppName write AppName;
+    // Optional short description of the application, used in generated native metadata.
     property ApplicationDescription: UTF8String read AppDescription write AppDescription;
+    // Absolute path of the executable to launch. Blank uses the running executable.
+    // For design-time previews and deployment files, supply the final installed path.
     property ExecutablePath: UTF8String read ProgramPath write ProgramPath;
+    // fasCurrentUser is the default and needs no administrator access. fasAllUsers
+    // requires elevation on Windows or system-package deployment on Linux.
     property RegistrationScope: TFileAssScope read InstallScope write InstallScope default fasCurrentUser;
+    // Default False. True uses Linux batch arguments (%F) and Windows multi-selection
+    // (Player, subject to shell limits). Your startup handler must accept multiple filenames.
+    property SupportsMultipleFiles: Boolean read MultipleDocuments write MultipleDocuments default False;
+    // Default False. Show the Linux application entry in the Applications menu.
+    // Registration and export use this setting; it does not enable login autostart.
+    property ShowInApplicationMenu: Boolean read MenuEntry write MenuEntry default False;
+    // Linux launcher icon: an SVG/128-pixel PNG path or installed theme name.
+    // Relative paths resolve beside the executable; file icons are installed with ownership tracking.
+    property LinuxApplicationIcon: UTF8String read LinuxAppIcon write LinuxAppIcon;
+    // macOS application icon filename in Contents/Resources, such as App.icns.
+    // Export references this filename; the installer must supply the icon in the bundle.
+    property MacApplicationIcon: UTF8String read MacAppIcon write MacAppIcon;
+    // Extensions and their document names, icons, and launch arguments. Edit the collection
+    // to add file types. Registration and deployment generation both use these settings;
+    // nothing is registered just by configuring or loading the component.
     property FileTypes: TFileAssTypeCollection read DocumentTypes write SetFileTypes;
   end;
   TFileAssBackend = class
@@ -86,9 +112,10 @@ function TFileAssConfiguration.Validate(Target: TFileAssTarget;
 begin
   Result := FileAssValidate(ApplicationID, ApplicationName,
     ResolveExecutable(DesignMode), FileTypes, Target);
-  if Result.Succeeded and FileAssContainsControl(ApplicationDescription) then
+  if Result.Succeeded and (FileAssContainsControl(ApplicationDescription) or
+    FileAssContainsControl(LinuxApplicationIcon) or FileAssContainsControl(MacApplicationIcon)) then
     Result := FileAssResult(farInvalidConfiguration,
-      'Application description must not contain control characters.');
+      'Application description and icons must not contain control characters.');
 end;
 constructor TFileAssManager.Create;
 begin

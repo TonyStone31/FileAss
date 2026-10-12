@@ -70,6 +70,7 @@ begin
         Add(Key + '\DefaultIcon', '', IconPath);
       end;
       Add(Key + '\shell\open\command', '', Command);
+      if Configuration.SupportsMultipleFiles then Add(Key + '\shell\open', 'MultiSelectModel', 'Player');
       Add('Software\Classes\' + Item.Extension + '\OpenWithProgids', ProgID(Configuration, Item), '');
       Add(Capability + '\FileAssociations', Item.Extension, ProgID(Configuration, Item));
     end;

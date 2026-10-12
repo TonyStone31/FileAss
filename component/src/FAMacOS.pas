@@ -185,6 +185,14 @@ begin
       AddMissing('CFBundleExecutable', ExtractFileName(Configuration.ExecutablePath));
       AddMissing('CFBundlePackageType', 'APPL');
       AddMissing('CFBundleInfoDictionaryVersion', '6.0');
+      if Configuration.MacApplicationIcon <> '' then begin
+        if (ExtractFileName(Configuration.MacApplicationIcon) <> Configuration.MacApplicationIcon) or
+          (Pos('\', Configuration.MacApplicationIcon) > 0) then
+          raise Exception.Create('MacApplicationIcon must name a file in the bundle Resources directory.');
+        Node := PlistValue(Dictionary, 'CFBundleIconFile');
+        if Assigned(Node) and OwnBundle then Node.TextContent := UTF8Decode(Configuration.MacApplicationIcon)
+        else AddMissing('CFBundleIconFile', Configuration.MacApplicationIcon);
+      end;
       Documents := PlistArray(Dictionary, 'CFBundleDocumentTypes');
       Exported := PlistArray(Dictionary, 'UTExportedTypeDeclarations');
       Imported := PlistArray(Dictionary, 'UTImportedTypeDeclarations');

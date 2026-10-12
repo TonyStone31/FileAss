@@ -1,12 +1,12 @@
 unit FARegister;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
-uses Classes, FileAssMan, ComponentEditors, FAComponentEditor, LResources;
+uses Classes, FileAssMan, FileAssInstance, ComponentEditors, FAComponentEditor, LResources;
 procedure Register;
 implementation
 procedure Register;
 begin
-  RegisterComponents('FileAss', [TFileAssMan]);
+  RegisterComponents('FileAss', [TFileAssMan, TFileAssInstance]);
   RegisterComponentEditor(TFileAssMan, TFileAssComponentEditor);
 end;
 initialization

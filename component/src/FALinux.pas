@@ -115,11 +115,32 @@ begin
       Xml := Xml + '  </mime-type>' + #10;
     end;
     Xml := Xml + '</mime-info>' + #10;
+    if Configuration.SupportsMultipleFiles then Arguments := Arguments + ' %F'
+    else Arguments := Arguments + ' %f';
+    IconName := Configuration.LinuxApplicationIcon;
+    if IconName = '' then IconName := 'application-x-executable';
+    if Pos('/', IconName) > 0 then begin
+      IconPath := IconName;
+      if IconPath[1] <> '/' then
+        IconPath := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFileDir(
+          Configuration.ResolveExecutable(False))) + IconPath);
+      Extension := LowerCase(ExtractFileExt(IconPath));
+      IconName := Configuration.ApplicationID;
+      if Extension = '.svg' then
+        Resources.AddFile('icons/hicolor/scalable/apps/' + IconName + Extension, FileAssReadFile(IconPath))
+      else if Extension = '.png' then
+        Resources.AddFile('icons/hicolor/128x128/apps/' + IconName + Extension, FileAssReadFile(IconPath))
+      else begin
+        Result.Message := 'Linux application icons must be SVG or 128-pixel PNG files.';
+        Exit;
+      end;
+    end;
     Desktop := '[Desktop Entry]' + #10 + 'Type=Application' + #10 +
       'Name=' + FileAssDesktopValue(Configuration.ApplicationName) + #10 +
       'Comment=' + FileAssDesktopValue(Configuration.ApplicationDescription) + #10 +
-      'Exec=' + Arguments + ' %f' + #10 + 'Terminal=false' + #10 +
-      'NoDisplay=true' + #10 + 'Icon=application-x-executable' + #10 +
+      'Exec=' + Arguments + #10 + 'Terminal=false' + #10 +
+      'NoDisplay=' + LowerCase(BoolToStr(not Configuration.ShowInApplicationMenu, True)) + #10 +
+      'Categories=Utility;' + #10 + 'Icon=' + FileAssDesktopValue(IconName) + #10 +
       'MimeType=' + MimeList + #10 +
       'X-FileAss-Owner=' + Configuration.ApplicationID + #10;
     Resources.AddFile('applications/' + Configuration.ApplicationID + '.desktop', Desktop);
@@ -131,6 +152,8 @@ function TFileAssLinuxBackend.OwnedPath(const Path, ApplicationID: UTF8String): 
 begin
   Result := (Path = 'applications/' + ApplicationID + '.desktop') or
     (Path = 'mime/packages/' + ApplicationID + '.xml') or
+    (Path = 'icons/hicolor/scalable/apps/' + ApplicationID + '.svg') or
+    (Path = 'icons/hicolor/128x128/apps/' + ApplicationID + '.png') or
     ((Pos('icons/hicolor/scalable/mimetypes/' + ApplicationID + '-mime-', Path) = 1) or
      (Pos('icons/hicolor/128x128/mimetypes/' + ApplicationID + '-mime-', Path) = 1));
   Result := Result and (Pos('..', Path) = 0) and (Pos('\', Path) = 0) and
