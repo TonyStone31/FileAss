@@ -138,14 +138,14 @@ var
             Child := Value.FirstChild;
             while Assigned(Child) do begin
               if Child.TextContent = UTF8Decode(Identifier) then
-                raise Exception.Create('An existing document declaration will be preserved: ' + Identifier);
+                raise Exception.Create('The template already declares a document type for ' + Identifier + '.');
               Child := Child.NextSibling;
             end;
           end;
         end else begin
           Value := PlistValue(Entry, 'UTTypeIdentifier');
           if Assigned(Value) and (Value.TextContent = UTF8Decode(Identifier)) then
-            raise Exception.Create('An existing type declaration will be preserved: ' + Identifier);
+            raise Exception.Create('The template already declares the type ' + Identifier + '.');
         end;
       end;
       Entry := Entry.NextSibling;
@@ -224,7 +224,10 @@ begin
           farViewer: Role := 'Viewer';
         else Role := 'None'; end;
         AddString(DocumentType, 'CFBundleTypeRole', Role);
-        AddString(DocumentType, 'LSHandlerRank', 'Alternate');
+        // Owner of its own exported types; a polite alternate for foreign ones.
+        if Pos(Configuration.ApplicationID + '.', Identifier) = 1 then
+          AddString(DocumentType, 'LSHandlerRank', 'Owner')
+        else AddString(DocumentType, 'LSHandlerRank', 'Alternate');
         if First.MacIcon <> '' then begin
           if ExtractFileName(First.MacIcon) <> First.MacIcon then
             raise Exception.Create('MacIcon must name a file in the bundle Resources directory.');
@@ -238,7 +241,10 @@ begin
         AddString(Definition, 'FileAssOwner', Configuration.ApplicationID);
         AddString(Definition, 'UTTypeIdentifier', Identifier);
         AddString(Definition, 'UTTypeDescription', First.Description);
-        AddArrayString(AddValue(Definition, 'UTTypeConformsTo', 'array'), 'public.data');
+        if First.MacIcon <> '' then AddString(Definition, 'UTTypeIconFile', First.MacIcon);
+        Node := AddValue(Definition, 'UTTypeConformsTo', 'array');
+        AddArrayString(Node, 'public.data');
+        AddArrayString(Node, 'public.content');
         Tags := AddValue(Definition, 'UTTypeTagSpecification', 'dict');
         Extensions := AddValue(Tags, 'public.filename-extension', 'array');
         MimeTypes := AddValue(Tags, 'public.mime-type', 'array');
