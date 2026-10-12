@@ -103,4 +103,6 @@ settings before upgrading.
 
 macOS requires application-bundle deployment rather than runtime registration.
 
+Thumbnail registration is a possible future option; it is not implemented.
+
 Copyright (c) 2026 Tony Stone.
