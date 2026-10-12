@@ -1,7 +1,7 @@
 object DemoForm: TDemoForm
-  Left = 24
+  Left = 10
   Height = 640
-  Top = 24
+  Top = 10
   Width = 1000
   Caption = 'FileAss Demo'
   ClientHeight = 640
