@@ -15,6 +15,7 @@ type
     StartupParameters: TStringList;
     StartupDirectory: UTF8String;
     StartupPending, Polling: Boolean;
+    ActivityTick: QWord;
     InstanceRole: TFileAssInstanceRole;
     Outcome: TFileAssResult;
     PrimaryLock: TObject;
@@ -40,6 +41,8 @@ type
     procedure Stop;
     property Role: TFileAssInstanceRole read InstanceRole;
     property LastResult: TFileAssResult read Outcome;
+    // GetTickCount64 time of the last start or delivery, for adaptive polling.
+    property LastActivity: QWord read ActivityTick;
   published
     // Stable reverse-domain ID identifying this application's instance inbox.
     // Ownership is scoped to the current user and session. Set before Start and
@@ -317,6 +320,7 @@ begin
         PrimaryLock := OwnerLock;
         OwnerLock := nil;
         InstanceRole := firPrimary;
+        ActivityTick := GetTickCount64;
         StartupParameters.Assign(Parameters);
         StartupDirectory := WorkingDirectory;
         StartupPending := SendInitial and (Mode = fimForwardParameters);
@@ -351,6 +355,7 @@ end;
 procedure TFileAssInstanceManager.DeliverParameters(Parameters: TStrings;
   const Directory: UTF8String; Initial: Boolean);
 begin
+  ActivityTick := GetTickCount64;
   if Initial or (Parameters.Count > 0) then begin
     if Assigned(ParametersHandler) then ParametersHandler(Self, Parameters, Directory, Initial)
     else if Parameters.Count > 0 then

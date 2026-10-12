@@ -46,7 +46,7 @@ is available for items in the **FileTypes** collection.
 | `ApplicationDescription` | Optional short application description. |
 | `ExecutablePath` | Blank uses the running executable. Design-time preview and installer generation require the deployed executable's absolute path. |
 | `RegistrationScope` | Default: `fasCurrentUser`. `fasAllUsers` requires elevation on Windows or system-package deployment on Linux. |
-| `SupportsMultipleFiles` | Default `False`. Set `True` for Linux batch arguments (`%F`) and Windows multi-selection (`Player`, with shell limits). |
+| `SupportsMultipleFiles` | Default `False`. Set `True` for Linux batch arguments (`%F`) and Windows multi-selection (`MultiSelectModel` `Player`, with shell limits). |
 | `ShowInApplicationMenu` | Default `False`. Show the Linux launcher in the Applications menu when registering or exporting. |
 | `LinuxApplicationIcon` | Launcher icon: SVG/128-pixel PNG path or installed theme name. Relative paths resolve beside the executable. |
 | `MacApplicationIcon` | Application icon filename, such as `App.icns`, supplied by the installer in the bundle's `Contents/Resources`. |

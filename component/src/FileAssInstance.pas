@@ -49,7 +49,7 @@ type
     property AutoTerminateSecondary: Boolean read QuitSecondary write QuitSecondary default True;
   end;
 implementation
-uses Forms, Dialogs;
+uses SysUtils, Forms, Dialogs;
 constructor TFileAssInstance.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -97,6 +97,7 @@ begin
   if Assigned(Associations) then ApplicationID := Associations.ApplicationID;
   Result := inherited Start;
   if Result = firPrimary then begin
+    MessageTimer.Interval := 50;
     MessageTimer.Enabled := True;
     Application.AddOnDropFilesHandler(@FilesOpened);
     if (Owner is TCustomForm) and (fsCreating in TCustomForm(Owner).FormState) then begin
@@ -130,7 +131,13 @@ end;
 procedure TFileAssInstance.DeliverPending(Data: PtrInt);
 begin if not OwnerCreating then Poll; end;
 procedure TFileAssInstance.CheckMessages(Sender: TObject);
-begin if not OwnerCreating then Poll; end;
+begin
+  if OwnerCreating then Exit;
+  Poll;
+  // Poll briskly around startup and recent deliveries, gently once idle.
+  if GetTickCount64 - LastActivity > 10000 then MessageTimer.Interval := 250
+  else MessageTimer.Interval := 50;
+end;
 procedure TFileAssInstance.FilesOpened(Sender: TObject; const FileNames: array of string);
 var Parameters: TStringList; I: Integer;
 begin

@@ -56,7 +56,7 @@ type
     // requires elevation on Windows or system-package deployment on Linux.
     property RegistrationScope: TFileAssScope read GetScope write SetScope default fasCurrentUser;
     // Default False. True uses Linux batch arguments (%F) and Windows multi-selection
-    // (Player, subject to shell limits). Your startup handler must accept multiple filenames.
+    // (MultiSelectModel Player, subject to shell limits). Your startup handler must accept multiple filenames.
     property SupportsMultipleFiles: Boolean read GetMultipleFiles write SetMultipleFiles default False;
     // Default False. Show the Linux application entry in the Applications menu.
     // Registration and export use this setting; it does not enable login autostart.
