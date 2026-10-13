@@ -78,11 +78,11 @@ begin
     RunInstanceDemo(Action = 'listen');
     Exit;
   end;
-  Manager := TFileAssManager.Create;
+  Manager := TFileAssManager.Create(nil);
   try
-    Manager.Configuration.ApplicationID := 'org.example.fileass.console';
-    Manager.Configuration.ApplicationName := 'FileAss Console';
-    with Manager.Configuration.FileTypes.Add do
+    Manager.ApplicationID := 'org.example.fileass.console';
+    Manager.ApplicationName := 'FileAss Console';
+    with Manager.FileTypes.Add do
     begin
       Extension := '.faconsolenote';
       Description := 'FileAss console document';
@@ -96,7 +96,7 @@ begin
     else if Action = 'status' then Manager.GetRegistrationStatus(Outcome)
     else if (Action = 'generate') and (ParamCount = 2) then
     begin
-      Manager.Configuration.ExecutablePath := ExpandFileName(ParamStr(0));
+      Manager.ExecutablePath := ExpandFileName(ParamStr(0));
       Outcome := Manager.GenerateDeploymentFiles(ParamStr(2));
     end
     else

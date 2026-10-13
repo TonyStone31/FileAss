@@ -26,8 +26,8 @@ begin
   case Index of
     0: Result := 'Edit File Types...';
     1: Result := 'Validate Configuration...';
-    2: Result := 'Preview Native Registration...';
-    3: Result := 'Generate Deployment Files...';
+    2: Result := 'Preview What Gets Registered...';
+    3: Result := 'Export Files for an Installer...';
     4: Result := 'About FileAss...';
     else
       Result := '';
@@ -61,7 +61,7 @@ begin
         end;
         PreviewForm := TForm.CreateNew(nil);
         try
-          PreviewForm.Caption := 'FileAss Native Registration Preview';
+          PreviewForm.Caption := 'What FileAss would register';
           PreviewForm.SetBounds(0, 0, 800, 560);
           PreviewForm.Position := poScreenCenter;
           Memo := TMemo.Create(PreviewForm);
@@ -82,7 +82,7 @@ begin
     3: begin
       DirectoryDialog := TSelectDirectoryDialog.Create(nil);
       try
-        DirectoryDialog.Title := 'Choose an empty deployment output directory';
+        DirectoryDialog.Title := 'Choose an empty folder for the exported files';
         if DirectoryDialog.Execute then
         begin
           Outcome := Manager.GenerateDeploymentFiles(DirectoryDialog.FileName);
@@ -93,7 +93,7 @@ begin
       end;
     end;
     4: ShowMessage('FileAss' + LineEnding + 'Copyright (c) 2026 Tony Stone' + LineEnding + '0BSD license' + LineEnding +
-        'Available handlers are registered without replacing user defaults.');
+        'Registers your program for its file types. Which program is the default stays the user''s choice.');
   end;
 end;
 

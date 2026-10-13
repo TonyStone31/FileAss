@@ -42,11 +42,11 @@ end;
 function FileAssHostTarget: TFileAssTarget;
 begin
   {$if defined(windows)}
-Result := fatWindows;
+  Result := fatWindows;
   {$elseif defined(darwin)}
-Result := fatMacOS;
+  Result := fatMacOS;
   {$elseif defined(linux)}
-Result := fatLinux;
+  Result := fatLinux;
   {$else}
   Result := fatUnavailable;
   {$endif}

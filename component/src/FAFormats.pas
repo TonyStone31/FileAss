@@ -5,6 +5,11 @@ interface
 uses Classes, SysUtils, Contnrs, FATypes;
 
 type
+  { A setting that cannot be registered as it stands. }
+  EFileAssConfiguration = class(Exception);
+
+  { One thing to install: a file and its contents on Linux, a registry value
+    on Windows (Path is then the key, a tab, and the value's name). }
   TFileAssResource = class
   public
     Path: utf8string;
@@ -17,6 +22,7 @@ type
   public
     constructor Create;
     procedure AddFile(const Path: utf8string; const Contents: rawbytestring);
+    function IndexOfPath(const Path: utf8string): integer;
     property Files[Index: integer]: TFileAssResource read GetResource; default;
   end;
 
@@ -56,11 +62,20 @@ begin
   Add(Resource);
 end;
 
+function TFileAssResources.IndexOfPath(const Path: utf8string): integer;
+var
+  I: integer;
+begin
+  for I := 0 to Count - 1 do
+    if Files[I].Path = Path then Exit(I);
+  Result := -1;
+end;
+
 function FileAssReadFile(const Path: utf8string): rawbytestring;
 var
   Stream: THandleStream;
   {$ifdef windows}
-FileHandle: THandle;
+  FileHandle: THandle;
   {$endif}
 begin
   Result := '';
@@ -79,7 +94,7 @@ begin
   finally
     Stream.Free;
     {$ifdef windows}
-FileClose(FileHandle);
+    FileClose(FileHandle);
     {$endif}
   end;
 end;
@@ -88,7 +103,7 @@ procedure FileAssWriteFile(const Path: utf8string; const Contents: rawbytestring
 var
   Stream: THandleStream;
   {$ifdef windows}
-FileHandle: THandle;
+  FileHandle: THandle;
   {$endif}
 begin
   {$ifdef windows}
@@ -207,6 +222,7 @@ end;
 function FileAssFailure(E: Exception): TFileAssResult;
 begin
   Result := FileAssResult(farOperationFailed, E.Message);
+  if E is EFileAssConfiguration then Result.Code := farInvalidConfiguration;
   if E is EOSError then
   begin
     Result.NativeError := EOSError(E).ErrorCode;
@@ -216,7 +232,9 @@ end;
 
 function FileAssExecutable: utf8string;
   {$ifdef windows}
-var Buffer: UnicodeString; Count: DWORD;
+var
+  Buffer: unicodestring;
+  Count: DWORD;
   {$endif}
 begin
   {$ifdef windows}

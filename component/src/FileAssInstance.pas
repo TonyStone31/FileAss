@@ -5,6 +5,9 @@ interface
 uses Classes, ExtCtrls, FileAssMan, FAInstanceCore, FATypes;
 
 type
+  { TFileAssInstanceManager on a form: it starts with the form, polls on a
+    timer, brings the form forward when asked, and turns files opened through
+    the system (a Finder double-click, a drop on the icon) into OnParameters. }
   TFileAssInstance = class(TFileAssInstanceManager)
   private
     Associations: TFileAssMan;
@@ -29,25 +32,23 @@ type
     function Start: TFileAssInstanceRole; reintroduce;
     procedure Stop; reintroduce;
   published
-    // Default False. True starts instance handling when the form loads. At runtime,
-    // setting True starts and False stops it. The designer never starts instance handling;
-    // this property does not register file associations. Explicit Start is also available.
+    // True starts single-instance handling when the form loads; at run time it
+    // starts and stops it. Nothing happens in the designer, and this registers
+    // no file types - that is TFileAssMan's job.
     property Enabled: boolean read StartupEnabled write SetEnabled default False;
-    // Optional association component supplying ApplicationID when Start runs.
-    // When assigned, its ID takes precedence over this component's ApplicationID.
-    // Linking it does not register associations. Stop before changing this reference.
+    // Point this at your TFileAssMan and its ApplicationID is used, so the ID is
+    // typed in one place. Stop before changing it.
     property FileAssMan: TFileAssMan read Associations write SetAssociations;
-    // Default True. Routes LCL file-open/drop notifications through OnParameters
-    // in forwarding mode, using the same readiness gate. Disable if your application
-    // already handles these notifications, to avoid processing a file twice.
+    // True sends files the system hands the running program - a double-click in
+    // Finder, a drop on the application - through OnParameters too. Turn it off
+    // if you already handle OnDropFiles, or a file would be opened twice.
     property HandleFileOpenEvents: boolean read NativeFiles write NativeFiles default True;
-    // Default True. Marks the primary ready after normal owner-form creation.
-    // Set False if initialization continues afterward, then set ReadyForParameters=True
-    // yourself when the application can handle files. Ownership is claimed immediately.
+    // True sets ReadyForParameters once the form has been created. If your
+    // program is not ready to open files by then, set this False and set
+    // ReadyForParameters yourself when it is.
     property AutoReady: boolean read AutomaticReady write AutomaticReady default True;
-    // Default True. Secondary or failed launches terminate without showing the main
-    // form. False leaves shutdown to your code. FormCreate can still run; skip primary-only
-    // startup work there when Role is not firPrimary.
+    // True ends a second copy before its main form shows. Its FormCreate still
+    // runs first, so skip startup work there when Role is not firPrimary.
     property AutoTerminateSecondary: boolean read QuitSecondary write QuitSecondary default True;
   end;
 
@@ -160,7 +161,7 @@ procedure TFileAssInstance.CheckMessages(Sender: TObject);
 begin
   if OwnerCreating then Exit;
   Poll;
-  // Poll briskly around startup and recent deliveries, gently once idle.
+  // quick while things are arriving, slow once it has been quiet for a while
   if GetTickCount64 - LastActivity > 10000 then MessageTimer.Interval := 250
   else
     MessageTimer.Interval := 50;

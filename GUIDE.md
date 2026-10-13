@@ -89,13 +89,16 @@ if not Outcome.Succeeded then
   ShowMessage(Outcome.Message);
 ```
 
-Use `UnregisterAll` to remove owned registrations. Nothing is registered
-at startup, and the user's chosen default application is never replaced.
-On Windows, registration updates use the saved installed values, and removal
-uses the installed inventory even if the collection has changed. Externally
-edited values are preserved. Older registrations without an inventory must
-first be registered with their unchanged settings, or removed with those
-settings before upgrading.
+`UnregisterAll` takes it all out again. Nothing is registered at startup, and
+the user's chosen default application is never replaced.
+
+Everything FileAss installs is named after your `ApplicationID`: the `.desktop`
+entry, MIME package and icons on Linux, the ProgIDs and capability keys on
+Windows. That is how `UnregisterAll` finds it later, whatever the file types
+are by then, and how `RegisterAll` cleans up after a file type you have since
+dropped. So keep the ID the same from release to release. On Windows a ProgID
+that carries your ID in its name but was not made by FileAss is left alone,
+and `RegisterAll` says so.
 
 macOS requires application-bundle deployment rather than runtime registration.
 
@@ -132,7 +135,7 @@ registration instead; the installer decides how to install the exported files.
 On Linux, set **ShowInApplicationMenu = True** and optionally
 **LinuxApplicationIcon**, then call `RegisterAll`. This makes the existing
 desktop entry visible in the Applications menu. `UnregisterAll` removes the
-owned entry and installed icon. The demo's **Add to Applications menu** checkbox
+entry and its icon. The demo's **Add to Applications menu** checkbox
 applies this option when you register or export.
 
 Exports use the same settings. A Linux installer can install the generated
@@ -199,8 +202,12 @@ fifty launches at once, a killed primary, and documents opened by macOS.
 
 ## Console applications
 
-Console applications use **TFileAssInstanceManager** from **FAInstanceCore**,
-without the LCL. Configure its ID, mode, and events, call `Start`, set readiness,
+A program with no forms creates the same classes the components are made of:
+**TFileAssManager** from **FACore** for the file types (`TFileAssMan` is that
+class on the palette), and **TFileAssInstanceManager** from **FAInstanceCore**
+for the single instance. Neither needs the LCL.
+
+For the instance manager: configure its ID, mode, and events, call `Start`, set readiness,
 and call `Poll` from the application's loop. `Start` returns `firPrimary`,
 `firSecondary`, or `firFailed`; console code decides whether to exit.
 [FileAssConsole.lpr](demo/ConsoleExample/FileAssConsole.lpr) demonstrates this:

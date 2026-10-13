@@ -9,6 +9,10 @@ type
   TFileAssInstanceRole = (firStopped, firPrimary, firSecondary, firFailed);
   TFileAssParametersEvent = procedure(Sender: TObject; Parameters: TStrings; const WorkingDirectory: utf8string; Initial: boolean) of object;
 
+  { One running copy of an application, and the launches after it handed
+    to that copy.  The first to start holds a lock and becomes the primary;
+    later ones post their command line to its inbox and leave.  TFileAssInstance
+    is this class for a form; a program with no forms calls Start and Poll. }
   TFileAssInstanceManager = class(TComponent)
   private
     Identity: utf8string;
@@ -43,41 +47,38 @@ type
     procedure Stop;
     property Role: TFileAssInstanceRole read InstanceRole;
     property LastResult: TFileAssResult read Outcome;
-    // GetTickCount64 time of the last start or delivery, for adaptive polling.
+    // GetTickCount64 at the last start or delivery, so a caller can poll less when idle.
     property LastActivity: QWord read ActivityTick;
   published
-    // Stable reverse-domain ID identifying this application's instance inbox.
-    // Ownership is scoped to the current user and session. Set before Start and
-    // stop instance handling before changing it; do not delay setting it until ready.
+    // Your reverse-domain ID, such as org.example.notepad. Copies with the same ID,
+    // user and login session count as one application. Set it before Start.
     property ApplicationID: utf8string read Identity write SetIdentity;
-    // fimSingleInstance (default) ignores secondary launches. fimForwardParameters
-    // queues their startup parameters for the primary process. Set OnParameters
-    // for forwarding and stop instance handling before changing the mode.
+    // fimSingleInstance: a second launch just quits. fimForwardParameters: it hands
+    // its command line to the running copy first, which gets it in OnParameters.
+    // Stop before changing this.
     property Mode: TFileAssInstanceMode read InstanceMode write SetMode default fimSingleInstance;
-    // Default False. True permits Poll to deliver initial and queued parameters.
-    // False pauses delivery while retaining primary ownership, so launches during
-    // initialization still forward to this process instead of creating another primary.
+    // Nothing is delivered until this is True. While it is False this copy is
+    // still the primary, so launches during a slow startup queue up and wait
+    // their turn.
     property ReadyForParameters: boolean read Ready write SetReady default False;
-    // Default True. In forwarding mode, the primary's own startup parameters use
-    // OnParameters with Initial=True, including an empty initial list. False leaves
-    // initial startup handling to your application; forwarded requests still arrive.
+    // True sends the first copy's own command line through OnParameters as well,
+    // with Initial = True, so one handler opens files however they arrive. False
+    // if you read ParamStr yourself.
     property IncludeInitialParameters: boolean read SendInitial write SendInitial default True;
-    // Receives initial or forwarded startup parameters after readiness. Parameters
-    // may contain several filenames or ordinary options; resolve relative filenames
-    // against WorkingDirectory. Copy the list if retaining it after the event.
-    // Initial is True only for the primary's startup. Runs in the thread calling Poll.
+    // A command line has arrived: this copy's own (Initial = True) or a later
+    // launch's. A relative filename is relative to WorkingDirectory, which is the
+    // launching copy's. Copy the list if you keep it. Runs in the thread that
+    // calls Poll - the main thread, for the form component.
     property OnParameters: TFileAssParametersEvent read ParametersHandler write ParametersHandler;
-    // A secondary launch forwarded no parameters. The form component restores
-    // and brings forward its owner form unless this event is assigned. The console
-    // manager has no default activation action. Delivery waits for readiness.
+    // Someone started the program again with nothing on the command line. The
+    // form component brings its form to the front unless you handle this.
     property OnActivateRequested: TNotifyEvent read ActivationHandler write ActivationHandler;
-    // Runs in the secondary process after its launch is ignored or its parameters
-    // are queued. A successful queue does not confirm that files have been opened.
-    // The form component then terminates if AutoTerminateSecondary is True.
+    // Runs in the second copy, after it has been turned away or has handed over
+    // its command line. Handing over is not the same as the files being open yet.
     property OnSecondaryInstance: TFileAssErrorEvent read SecondaryHandler write SecondaryHandler;
-    // Reports startup or delivery failures through a result code and message.
-    // The form component displays unhandled errors; the console manager does not.
-    // Check Start's returned role and LastResult when deciding how to continue.
+    // Something went wrong starting up or delivering. The form component shows
+    // the message if you do not handle this; Start's result and LastResult say
+    // the same thing.
     property OnError: TFileAssErrorEvent read ErrorHandler write ErrorHandler;
   end;
 
@@ -89,9 +90,9 @@ implementation
 uses MD5, FAValidation, FAFormats
   {$ifdef unix}, BaseUnix, Unix{$endif}
   {$ifdef windows}, Windows, ShellApi{$endif};
+
   {$ifdef windows}
-function SessionForProcess(ProcessID: DWORD; var SessionID: DWORD): BOOL; stdcall;
-  external 'kernel32.dll' name 'ProcessIdToSessionId';
+function ProcessIdToSessionId(ProcessID: DWORD; var SessionID: DWORD): BOOL; stdcall; external 'kernel32.dll';
   {$endif}
 
 const
@@ -99,11 +100,14 @@ const
   O_NOFOLLOW = $00000100;  // FPC 3.2's Darwin RTL leaves it out
   {$endif}
   ParameterMessage = 1;
-  PacketSignature = $31494146;
+  PacketSignature = $31494146;  // 'FAI1'
+  // the inbox is a file anyone in the session could have written
   MaxPacketSize = 1024 * 1024;
   MaxParameterCount = 4096;
 
 type
+  { A lock the system lets go of when the process ends, however it ends: a
+    named mutex on Windows, flock on a file in the temp directory elsewhere. }
   TInstanceLock = class
   private
     Handle: THandle;
@@ -145,10 +149,10 @@ begin
 end;
 
 function TInstanceLock.Acquire(const Name: utf8string; WaitMilliseconds: cardinal): boolean;
-  {$ifdef windows}
-var Address: UnicodeString; Status: DWORD;
-  {$else}
 var
+  {$ifdef windows}
+  Status: DWORD;
+  {$else}
   Path: utf8string;
   Info: TStat;
   Deadline: QWord;
@@ -157,23 +161,29 @@ var
 begin
   if Held then Exit(True);
   {$ifdef windows}
-  Address := UTF8Decode('Local\' + Name);
-  Handle := CreateMutexW(nil, False, PWideChar(Address));
-  if Handle = 0 then begin Handle := THandle(-1); RaiseLastOSError; end;
+  Handle := CreateMutexW(nil, False, PWideChar(UTF8Decode('Local\' + Name)));
+  if Handle = 0 then
+  begin
+    Handle := THandle(-1);
+    RaiseLastOSError;
+  end;
   Status := WaitForSingleObject(Handle, WaitMilliseconds);
+  // abandoned means the last holder died with it, which is ours to take
   Held := (Status = WAIT_OBJECT_0) or (Status = WAIT_ABANDONED);
-  if not Held then begin
+  if not Held then
+  begin
     CloseHandle(Handle);
     Handle := THandle(-1);
     if Status <> WAIT_TIMEOUT then RaiseLastOSError;
   end;
   {$else}
+  // the temp directory is shared, so no following a link someone left there
   Path := IncludeTrailingPathDelimiter(GetTempDir(False)) + Name + '.lock';
   Handle := fpOpen(PChar(Path), O_RDWR or O_CREAT or O_NOFOLLOW, &600);
   if Handle = THandle(-1) then RaiseLastOSError(fpGetErrno);
   if (fpFStat(Handle, Info) <> 0) or (Info.st_uid <> fpGetUID) or not FPS_ISREG(Info.st_mode) then
     raise Exception.Create('The instance lock is not a regular file owned by this user.');
-  fpFcntl(Handle, F_SETFD, 1);
+  fpFcntl(Handle, F_SETFD, 1);  // a child process must not inherit the lock
   Deadline := GetTickCount64 + WaitMilliseconds;
   repeat
     Held := fpFlock(Handle, LOCK_EX or LOCK_NB) = 0;
@@ -192,17 +202,20 @@ begin
   Result := Held;
 end;
 
+{ The name the lock and inbox go by: one per application, user and login
+  session, so two people on one machine each get their own copy. }
 function ScopedID(const ID: utf8string): utf8string;
 var
   Scope: utf8string;
   {$ifdef windows}
-UserName: array[0..255] of WideChar; Size, Session: DWORD;
+  UserName: array[0..255] of widechar;
+  Size, Session: DWORD;
   {$endif}
 begin
   {$ifdef windows}
   Size := Length(UserName);
   if not GetUserNameW(@UserName[0], Size) then RaiseLastOSError;
-  if not SessionForProcess(GetCurrentProcessID, Session) then RaiseLastOSError;
+  if not ProcessIdToSessionId(GetCurrentProcessID, Session) then RaiseLastOSError;
   Scope := UTF8Encode(UnicodeString(PWideChar(@UserName[0]))) + ':' + IntToStr(Session);
   {$else}
   Scope := IntToStr(fpGetUID) + ':' + GetEnvironmentVariable('XDG_SESSION_ID');
@@ -212,23 +225,25 @@ begin
   Result := 'FileAss_' + MD5Print(MD5String(ID + #0 + Scope));
 end;
 
+{ The command line as UTF-8.  ParamStr loses characters outside the system
+  code page on Windows, so there it is read from the wide API. }
 procedure FileAssStartupParameters(Parameters: TStrings);
 var
   I: integer;
   {$ifdef windows}
-type TArguments = array[0..32767] of PWideChar;
-  PArguments = ^TArguments;
-var Arguments: pLPWSTR; Count: LongInt;
+  Arguments: PPWideChar;
+  Count: longint;
   {$endif}
 begin
   Parameters.Clear;
   {$ifdef windows}
-  Arguments := CommandLineToArgvW(GetCommandLineW, @Count);
+  Arguments := PPWideChar(CommandLineToArgvW(GetCommandLineW, @Count));
   if not Assigned(Arguments) then RaiseLastOSError;
   try
-    for I := 1 to Count - 1 do
-      Parameters.Add(string(UTF8Encode(UnicodeString(PArguments(Arguments)^[I]))));
-  finally LocalFree(HLOCAL(Arguments)); end;
+    for I := 1 to Count - 1 do Parameters.Add(string(UTF8Encode(unicodestring(Arguments[I]))));
+  finally
+    LocalFree(HLOCAL(Arguments));
+  end;
   {$else}
   for I := 1 to ParamCount do Parameters.Add(ParamStr(I));
   {$endif}
@@ -236,7 +251,9 @@ end;
 
 function FileAssWorkingDirectory: utf8string;
   {$ifdef windows}
-var Buffer: UnicodeString; Count: DWORD;
+var
+  Buffer: unicodestring;
+  Count: DWORD;
   {$endif}
 begin
   {$ifdef windows}
@@ -379,7 +396,7 @@ begin
         raise Exception.Create('Set a stable reverse-domain ApplicationID before starting instance handling.');
       TransportID := ScopedID(ApplicationID);
       GateName := TransportID + '_gate';
-      // Serialize ownership changes and inbox writes, never application startup.
+      // the gate is held only while the lock and inbox change hands, not while the program starts
       if not Gate.Acquire(GateName, 2000) then raise Exception.Create('Timed out waiting for the instance inbox.');
       if OwnerLock.Acquire(TransportID + '_owner', 0) then
       begin
@@ -535,7 +552,7 @@ begin
   try
     if Assigned(Receiver) then
     begin
-      // Keep undispatched requests for the next primary, including crash recovery.
+      // what is still in the inbox stays there for whichever copy starts next
       Gate.Acquire(GateName, 2000);
       Receiver.StopServer(False);
       FreeAndNil(Receiver);

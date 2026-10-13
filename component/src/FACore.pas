@@ -2,214 +2,219 @@ unit FACore;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
 
-uses Classes, SysUtils, FATypes, FACollection, FAValidation;
+uses Classes, SysUtils, FATypes, FACollection;
 
 type
-  TFileAssConfiguration = class(TPersistent)
+  TFileAssManager = class;
+
+  { What one operating system does with the settings.  FAWindows, FALinux
+    and FAMacOS each have one. }
+  TFileAssBackend = class
+  public
+    function RegisterTypes(App: TFileAssManager): TFileAssResult; virtual; abstract;
+    function UnregisterTypes(App: TFileAssManager): TFileAssResult; virtual; abstract;
+    function GetStatus(App: TFileAssManager; out Diagnostic: TFileAssResult): TFileAssStatus; virtual; abstract;
+    function GenerateDeploymentFiles(App: TFileAssManager; const OutputDirectory: utf8string): TFileAssResult; virtual; abstract;
+    function OpenDefaultAppsSettings: TFileAssResult; virtual; abstract;
+    function Preview(App: TFileAssManager; Text: TStrings): TFileAssResult; virtual; abstract;
+  end;
+
+  { The file types of one application, and registering them.  TFileAssMan is
+    this class on the component palette; a program with no forms can create
+    it directly.  Nothing here needs the LCL. }
+  TFileAssManager = class(TComponent)
   private
     AppIdentifier, AppName, AppDescription, ProgramPath: utf8string;
     InstallScope: TFileAssScope;
     MultipleDocuments, MenuEntry: boolean;
     LinuxAppIcon, MacAppIcon: utf8string;
     DocumentTypes: TFileAssTypeCollection;
+    Backend: TFileAssBackend;
+    ErrorHandler: TFileAssErrorEvent;
     procedure SetFileTypes(Value: TFileAssTypeCollection);
+    function Report(const Value: TFileAssResult): TFileAssResult;
+    function MayTouchSystem(out Why: TFileAssResult): boolean;
   public
-    constructor Create;
+    constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    function Validate(Target: TFileAssTarget; DesignMode: boolean = False): TFileAssResult;
-    function ResolveExecutable(DesignMode: boolean): utf8string;
-  published
-    // Stable reverse-domain ID, such as org.example.notepad. Required for ownership;
-    // keep it unchanged between releases so upgrades and removal find the same registrations.
-    property ApplicationID: utf8string read AppIdentifier write AppIdentifier;
-    // Required application display name, such as My Notepad. Shown in application
-    // choosers and generated registration resources.
-    property ApplicationName: utf8string read AppName write AppName;
-    // Optional short description of the application, used in generated native metadata.
-    property ApplicationDescription: utf8string read AppDescription write AppDescription;
-    // Absolute path of the executable to launch. Blank uses the running executable.
-    // For design-time previews and deployment files, supply the final installed path.
-    property ExecutablePath: utf8string read ProgramPath write ProgramPath;
-    // fasCurrentUser is the default and needs no administrator access. fasAllUsers
-    // requires elevation on Windows or system-package deployment on Linux.
-    property RegistrationScope: TFileAssScope read InstallScope write InstallScope default fasCurrentUser;
-    // Default False. True uses Linux batch arguments (%F) and Windows multi-selection
-    // (MultiSelectModel Player, subject to shell limits). Your startup handler must accept multiple filenames.
-    property SupportsMultipleFiles: boolean read MultipleDocuments write MultipleDocuments default False;
-    // Default False. Show the Linux application entry in the Applications menu.
-    // Registration and export use this setting; it does not enable login autostart.
-    property ShowInApplicationMenu: boolean read MenuEntry write MenuEntry default False;
-    // Linux launcher icon: an SVG/128-pixel PNG path or installed theme name.
-    // Relative paths resolve beside the executable; file icons are installed with ownership tracking.
-    property LinuxApplicationIcon: utf8string read LinuxAppIcon write LinuxAppIcon;
-    // macOS application icon filename in Contents/Resources, such as App.icns.
-    // Export references this filename; the installer must supply the icon in the bundle.
-    property MacApplicationIcon: utf8string read MacAppIcon write MacAppIcon;
-    // Extensions and their document names, icons, and launch arguments. Edit the collection
-    // to add file types. Registration and deployment generation both use these settings;
-    // nothing is registered just by configuring or loading the component.
-    property FileTypes: TFileAssTypeCollection read DocumentTypes write SetFileTypes;
-  end;
-
-  TFileAssBackend = class
-  public
-    function RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; virtual; abstract;
-    function UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; virtual; abstract;
-    function GetStatus(Configuration: TFileAssConfiguration; out Diagnostic: TFileAssResult): TFileAssStatus; virtual; abstract;
-    function GenerateDeploymentFiles(Configuration: TFileAssConfiguration; const OutputDirectory: utf8string): TFileAssResult; virtual; abstract;
-    function OpenDefaultAppsSettings: TFileAssResult; virtual; abstract;
-    function Preview(Configuration: TFileAssConfiguration; Text: TStrings): TFileAssResult; virtual; abstract;
-  end;
-
-  TFileAssManager = class
-  private
-    Settings: TFileAssConfiguration;
-    NativeBackend: TFileAssBackend;
-  public
-    constructor Create;
-    destructor Destroy; override;
+    { ExecutablePath, or this program when that is blank. }
+    function Executable: utf8string;
+    { Checks the settings for one platform.  An export is for some other
+      machine, so it wants ExecutablePath filled in: NeedPath. }
+    function ValidateFor(Target: TFileAssTarget; NeedPath: boolean = False): TFileAssResult;
     function Validate: TFileAssResult;
     function RegisterAll: TFileAssResult;
     function UnregisterAll: TFileAssResult;
-    function GetRegistrationStatus(out Diagnostic: TFileAssResult): TFileAssStatus;
+    function GetRegistrationStatus: TFileAssStatus; overload;
+    function GetRegistrationStatus(out Diagnostic: TFileAssResult): TFileAssStatus; overload;
     function GenerateDeploymentFiles(const OutputDirectory: utf8string): TFileAssResult;
     function OpenDefaultAppsSettings: TFileAssResult;
     function PreviewNativeRegistration(Text: TStrings): TFileAssResult;
-    property Configuration: TFileAssConfiguration read Settings;
+  published
+    // Required. Your own reverse-domain ID, such as org.example.notepad. Everything
+    // FileAss installs is named after it, so keep it the same from release to release.
+    property ApplicationID: utf8string read AppIdentifier write AppIdentifier;
+    // Required. The name people see in "Open With", such as My Notepad.
+    property ApplicationName: utf8string read AppName write AppName;
+    // A short line about the application. Optional.
+    property ApplicationDescription: utf8string read AppDescription write AppDescription;
+    // Full path of the program to launch. Blank means this program. Fill it in
+    // with the installed path before exporting files for an installer.
+    property ExecutablePath: utf8string read ProgramPath write ProgramPath;
+    // fasCurrentUser needs no administrator rights. fasAllUsers needs elevation
+    // on Windows; on Linux export the files and install them with a package.
+    property RegistrationScope: TFileAssScope read InstallScope write InstallScope default fasCurrentUser;
+    // True if the program accepts several files in one launch: Linux then passes
+    // them all at once (%F), and Windows sends a selection together. Your startup
+    // code has to cope with more than one filename.
+    property SupportsMultipleFiles: boolean read MultipleDocuments write MultipleDocuments default False;
+    // Linux: list the program in the Applications menu. This is not autostart.
+    property ShowInApplicationMenu: boolean read MenuEntry write MenuEntry default False;
+    // Linux: the program's icon - an SVG or 128-pixel PNG file, or the name of
+    // an icon in the theme. A relative path is beside the executable.
+    property LinuxApplicationIcon: utf8string read LinuxAppIcon write LinuxAppIcon;
+    // macOS: the icon's file name in the bundle's Resources, such as App.icns.
+    // The installer puts the file there; the export only names it.
+    property MacApplicationIcon: utf8string read MacAppIcon write MacAppIcon;
+    // The extensions, with their names, icons and launch arguments. Setting
+    // these registers nothing; RegisterAll does.
+    property FileTypes: TFileAssTypeCollection read DocumentTypes write SetFileTypes;
+    // Called when an operation fails. The methods return the same result,
+    // and no dialog is shown either way.
+    property OnError: TFileAssErrorEvent read ErrorHandler write ErrorHandler;
   end;
 
 implementation
 
 uses
-  FAFormats
+  FAValidation, FAFormats
   {$if defined(windows)}, FAWindows{$elseif defined(linux)}, FALinux{$elseif defined(darwin)}, FAMacOS{$endif};
 
-function CreateBackend: TFileAssBackend;
+constructor TFileAssManager.Create(AOwner: TComponent);
 begin
-  {$if defined(windows)}
-Result := TFileAssWindowsBackend.Create;
-  {$elseif defined(linux)}
-Result := TFileAssLinuxBackend.Create;
-  {$elseif defined(darwin)}
-Result := TFileAssMacOSBackend.Create;
-  {$else}
-  Result := nil;
-  {$endif}
-end;
-
-constructor TFileAssConfiguration.Create;
-begin
-  inherited Create;
+  inherited Create(AOwner);
   DocumentTypes := TFileAssTypeCollection.Create(Self);
-  InstallScope := fasCurrentUser;
-end;
-
-destructor TFileAssConfiguration.Destroy;
-begin
-  DocumentTypes.Free;
-  inherited Destroy;
-end;
-
-procedure TFileAssConfiguration.SetFileTypes(Value: TFileAssTypeCollection);
-begin
-  DocumentTypes.Assign(Value);
-end;
-
-function TFileAssConfiguration.ResolveExecutable(DesignMode: boolean): utf8string;
-begin
-  Result := ProgramPath;
-  if (Result = '') and not DesignMode then Result := FileAssExecutable;
-end;
-
-function TFileAssConfiguration.Validate(Target: TFileAssTarget; DesignMode: boolean): TFileAssResult;
-begin
-  Result := FileAssValidate(ApplicationID, ApplicationName, ResolveExecutable(DesignMode), FileTypes, Target);
-  if Result.Succeeded and (FileAssContainsControl(ApplicationDescription) or FileAssContainsControl(LinuxApplicationIcon) or FileAssContainsControl(MacApplicationIcon)) then
-    Result := FileAssResult(farInvalidConfiguration, 'Application description and icons must not contain control characters.');
-end;
-
-constructor TFileAssManager.Create;
-begin
-  inherited Create;
-  Settings := TFileAssConfiguration.Create;
-  NativeBackend := CreateBackend;
+  {$if defined(windows)}
+  Backend := TFileAssWindowsBackend.Create;
+  {$elseif defined(linux)}
+  Backend := TFileAssLinuxBackend.Create;
+  {$elseif defined(darwin)}
+  Backend := TFileAssMacOSBackend.Create;
+  {$endif}
 end;
 
 destructor TFileAssManager.Destroy;
 begin
-  NativeBackend.Free;
-  Settings.Free;
+  Backend.Free;
+  DocumentTypes.Free;
   inherited Destroy;
+end;
+
+procedure TFileAssManager.SetFileTypes(Value: TFileAssTypeCollection);
+begin
+  DocumentTypes.Assign(Value);
+end;
+
+function TFileAssManager.Report(const Value: TFileAssResult): TFileAssResult;
+begin
+  Result := Value;
+  if not Result.Succeeded and Assigned(ErrorHandler) then ErrorHandler(Self, Result);
+end;
+
+{ The form designer must never register anything, and some platforms have
+  nothing to register with. }
+function TFileAssManager.MayTouchSystem(out Why: TFileAssResult): boolean;
+begin
+  if csDesigning in ComponentState then
+    Why := FileAssResult(farUnsupported, 'Nothing is changed on the system at design time.')
+  else if Backend = nil then
+    Why := FileAssResult(farUnsupported, 'File associations are not available on this platform.')
+  else
+    Why := FileAssResult(farSuccess, '');
+  Result := Why.Succeeded;
+end;
+
+function TFileAssManager.Executable: utf8string;
+begin
+  Result := ProgramPath;
+  if (Result = '') and not (csDesigning in ComponentState) then Result := FileAssExecutable;
+end;
+
+function TFileAssManager.ValidateFor(Target: TFileAssTarget; NeedPath: boolean): TFileAssResult;
+var
+  Path: utf8string;
+begin
+  if NeedPath then Path := ProgramPath
+  else
+    Path := Executable;
+  Result := FileAssValidate(ApplicationID, ApplicationName, Path, FileTypes, Target);
+  if Result.Succeeded and (FileAssContainsControl(ApplicationDescription) or FileAssContainsControl(LinuxApplicationIcon) or FileAssContainsControl(MacApplicationIcon)) then
+    Result := FileAssResult(farInvalidConfiguration, 'The description and icons must not contain control characters.');
 end;
 
 function TFileAssManager.Validate: TFileAssResult;
 begin
-  Result := Configuration.Validate(FileAssHostTarget);
+  Result := Report(ValidateFor(FileAssHostTarget));
 end;
 
 function TFileAssManager.RegisterAll: TFileAssResult;
 begin
-  Result := Validate;
-  if not Result.Succeeded then Exit;
+  if MayTouchSystem(Result) then Result := ValidateFor(FileAssHostTarget);
   {$ifdef windows}
-  if not FileExists(UTF8Decode(Configuration.ResolveExecutable(False))) then
+  if Result.Succeeded and not FileExists(UTF8Decode(Executable)) then
   {$else}
-  if not FileExists(Configuration.ResolveExecutable(False)) then
+  if Result.Succeeded and not FileExists(Executable) then
   {$endif}
-    Exit(FileAssResult(farNotFound, 'The configured executable does not exist.'));
-  if Assigned(NativeBackend) then Result := NativeBackend.RegisterTypes(Configuration)
-  else
-    Result := FileAssResult(farRequiresDeployment, 'This platform requires bundle deployment.');
+    Result := FileAssResult(farNotFound, 'The executable does not exist: ' + Executable);
+  if Result.Succeeded then Result := Backend.RegisterTypes(Self);
+  Result := Report(Result);
 end;
 
 function TFileAssManager.UnregisterAll: TFileAssResult;
 begin
-  if not FileAssValidIdentifier(Configuration.ApplicationID) then
-    Exit(FileAssResult(farInvalidConfiguration, 'Invalid application identifier.'));
-  if Assigned(NativeBackend) then Result := NativeBackend.UnregisterTypes(Configuration)
-  else
-    Result := FileAssResult(farUnsupported, 'Native removal is unavailable.');
+  // only the ID is needed: removal goes by name, whatever the file types are now
+  if MayTouchSystem(Result) and not FileAssValidIdentifier(ApplicationID) then
+    Result := FileAssResult(farInvalidConfiguration, 'Invalid application identifier.');
+  if Result.Succeeded then Result := Backend.UnregisterTypes(Self);
+  Result := Report(Result);
+end;
+
+function TFileAssManager.GetRegistrationStatus: TFileAssStatus;
+var
+  Diagnostic: TFileAssResult;
+begin
+  Result := GetRegistrationStatus(Diagnostic);
 end;
 
 function TFileAssManager.GetRegistrationStatus(out Diagnostic: TFileAssResult): TFileAssStatus;
 begin
-  Diagnostic := Validate;
-  if not Diagnostic.Succeeded then Exit(fasVerificationFailed);
-  if Assigned(NativeBackend) then Result := NativeBackend.GetStatus(Configuration, Diagnostic)
-  else
-  begin
-    Diagnostic := FileAssResult(farUnsupported, 'Native inspection is unavailable.');
-    Result := fasUnavailable;
-  end;
+  Result := fasVerificationFailed;
+  Diagnostic := ValidateFor(FileAssHostTarget);
+  if Diagnostic.Succeeded then Result := Backend.GetStatus(Self, Diagnostic);
+  Diagnostic := Report(Diagnostic);
 end;
 
 function TFileAssManager.GenerateDeploymentFiles(const OutputDirectory: utf8string): TFileAssResult;
 begin
-  Result := Configuration.Validate(FileAssHostTarget, True);
-  if not Result.Succeeded then Exit;
-  if Trim(OutputDirectory) = '' then
-    Result := FileAssResult(farInvalidConfiguration, 'An output directory is required.')
-  else if Assigned(NativeBackend) then
-    Result := NativeBackend.GenerateDeploymentFiles(Configuration, OutputDirectory)
-  else
-    Result := FileAssResult(farUnsupported, 'Deployment generation is unavailable.');
+  Result := ValidateFor(FileAssHostTarget, True);
+  if Result.Succeeded and (Trim(OutputDirectory) = '') then
+    Result := FileAssResult(farInvalidConfiguration, 'An output directory is required.');
+  if Result.Succeeded then Result := Backend.GenerateDeploymentFiles(Self, OutputDirectory);
+  Result := Report(Result);
 end;
 
 function TFileAssManager.PreviewNativeRegistration(Text: TStrings): TFileAssResult;
 begin
   Text.Clear;
-  Result := Configuration.Validate(FileAssHostTarget, True);
-  if not Result.Succeeded then Exit;
-  if Assigned(NativeBackend) then Result := NativeBackend.Preview(Configuration, Text)
-  else
-    Result := FileAssResult(farUnsupported, 'Native preview is unavailable.');
+  Result := ValidateFor(FileAssHostTarget, True);
+  if Result.Succeeded then Result := Backend.Preview(Self, Text);
+  Result := Report(Result);
 end;
 
 function TFileAssManager.OpenDefaultAppsSettings: TFileAssResult;
 begin
-  if Assigned(NativeBackend) then Result := NativeBackend.OpenDefaultAppsSettings
-  else
-    Result := FileAssResult(farUnsupported, 'Default application settings are unavailable.');
+  if MayTouchSystem(Result) then Result := Backend.OpenDefaultAppsSettings;
+  Result := Report(Result);
 end;
 
 end.

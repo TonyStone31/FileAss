@@ -18,38 +18,38 @@ type
     constructor Create(ACollection: TCollection); override;
     procedure Assign(Source: TPersistent); override;
   published
-    // Default True. False excludes this item from registration and deployment generation.
-    // Changing this property alone does not modify already installed associations.
+    // False leaves this type out of the next RegisterAll or export. It does not
+    // undo a registration already made.
     property Enabled: boolean read TypeEnabled write TypeEnabled default True;
-    // Required filename extension, such as .mynote. A missing leading dot is added;
-    // surrounding whitespace is removed and the extension is stored in lowercase.
+    // Required. The extension, such as .mynote. It is kept in lowercase, and the
+    // dot is added if you leave it off.
     property Extension: utf8string read FileExtension write SetExtension;
-    // Human-readable document type name, such as My Notepad document.
-    // Used by native registration metadata; this is not the application name.
+    // What a file of this type is called, such as My Notepad document. Not the
+    // application's name.
     property Description: utf8string read TypeDescription write TypeDescription;
-    // Linux MIME type, such as application/x-my-notepad. Required on Linux.
-    // Choose a stable type describing your file format rather than the application.
+    // Required on Linux. The MIME type, such as application/x-my-notepad. Name it
+    // for the file format and keep it the same from release to release.
     property MimeType: utf8string read MimeName write MimeName;
-    // macOS document type identifier, such as org.example.notepad.document.
-    // Required for generated macOS bundle metadata; keep it stable between releases.
+    // Required on macOS. The type identifier, such as org.example.notepad.document.
+    // Keep it the same from release to release.
     property TypeIdentifier: utf8string read DocumentIdentifier write DocumentIdentifier;
-    // macOS document role: farEditor (default), farViewer, or farNone.
-    // This property does not change the user's default application.
+    // macOS: whether the program edits these files (farEditor), only shows them
+    // (farViewer), or neither (farNone).
     property Role: TFileAssRole read DocumentRole write DocumentRole default farEditor;
-    // Optional .ico path or Windows icon resource reference, such as icons/note.ico
-    // or an executable/resource path with an icon index. Relative paths resolve beside
-    // the application executable; distribute the referenced file with your application.
+    // Windows: an .ico file such as icons/note.ico, or a resource reference like
+    // C:\App\app.exe,1. A relative path is beside the executable. Ship the icon
+    // with your program; it is used where it lies.
     property WindowsIcon: utf8string read WindowsIconPath write WindowsIconPath;
-    // Optional SVG or 128-pixel PNG path, or an installed icon-theme name.
-    // Relative file paths resolve beside the executable. FileAss installs file-based icons
-    // for the MIME type; distribute the source icon with your application.
+    // Linux: an SVG or 128-pixel PNG file, or the name of an icon in the theme.
+    // A relative path is beside the executable. A file is copied into the icon
+    // theme when the type is registered.
     property LinuxIcon: utf8string read LinuxIconName write LinuxIconName;
-    // Optional icon filename in the application bundle's Resources directory,
-    // such as note.icns. Supply a filename, not a directory path.
+    // macOS: the icon's file name in the bundle's Resources, such as note.icns.
+    // A name, not a path.
     property MacIcon: utf8string read MacIconName write MacIconName;
-    // Optional arguments before the filename, such as --. FileAss appends the filename;
-    // do not include %1, %f, or %F placeholders. All enabled Linux items must use
-    // the same arguments because they share one desktop application entry.
+    // Arguments to pass before the filename, such as --. The filename is added
+    // for you, so no %1 or %f. On Linux every type must use the same arguments,
+    // because one desktop entry launches them all.
     property OpenArguments: utf8string read LaunchArguments write LaunchArguments;
   end;
 

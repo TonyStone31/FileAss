@@ -2,28 +2,31 @@ unit FALinux;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
 
-uses Classes, SysUtils, Process, MD5, BaseUnix, FATypes, FACollection, FACore, FAFormats;
+uses Classes, SysUtils, Process, BaseUnix, FATypes, FACollection, FACore, FAFormats;
 
 type
+  { Linux: a .desktop entry, a shared-mime-info package and icons, under the
+    user's data directory.  Every file is named after the ApplicationID, so
+    what belongs to an application is found by its name. }
   TFileAssLinuxBackend = class(TFileAssBackend)
   private
     function DataDirectory: utf8string;
-    function BuildResources(Configuration: TFileAssConfiguration; Resources: TFileAssResources): TFileAssResult;
+    procedure BuildResources(App: TFileAssManager; Resources: TFileAssResources);
+    function RemoveInstalled(const Root, ID: utf8string; Keep: TFileAssResources): integer;
     function UpdateDatabases(const Root: utf8string): TFileAssResult;
-    function CheckScope(Configuration: TFileAssConfiguration): TFileAssResult;
-    function OwnedPath(const Path, ApplicationID: utf8string): boolean;
-    procedure ReadManifest(const Root, ApplicationID: utf8string; Manifest: TStrings);
-    procedure CheckOwnedFiles(const Root: utf8string; Manifest: TStrings);
   public
-    function RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; override;
-    function UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult; override;
-    function GetStatus(Configuration: TFileAssConfiguration; out Diagnostic: TFileAssResult): TFileAssStatus; override;
-    function GenerateDeploymentFiles(Configuration: TFileAssConfiguration; const OutputDirectory: utf8string): TFileAssResult; override;
+    function RegisterTypes(App: TFileAssManager): TFileAssResult; override;
+    function UnregisterTypes(App: TFileAssManager): TFileAssResult; override;
+    function GetStatus(App: TFileAssManager; out Diagnostic: TFileAssResult): TFileAssStatus; override;
+    function GenerateDeploymentFiles(App: TFileAssManager; const OutputDirectory: utf8string): TFileAssResult; override;
     function OpenDefaultAppsSettings: TFileAssResult; override;
-    function Preview(Configuration: TFileAssConfiguration; Text: TStrings): TFileAssResult; override;
+    function Preview(App: TFileAssManager; Text: TStrings): TFileAssResult; override;
   end;
 
 implementation
+
+const
+  AllUsersHint = 'For all users, export the files and install them with a system package.';
 
 function TFileAssLinuxBackend.DataDirectory: utf8string;
 begin
@@ -32,179 +35,142 @@ begin
   begin
     Result := GetEnvironmentVariable('HOME');
     if (Result = '') or (Result[1] <> '/') then
-      raise Exception.Create('An absolute HOME or XDG_DATA_HOME is required.');
+      raise Exception.Create('Neither XDG_DATA_HOME nor HOME names a directory.');
     Result := IncludeTrailingPathDelimiter(Result) + '.local/share';
   end;
   Result := ExcludeTrailingPathDelimiter(Result);
 end;
 
-function TFileAssLinuxBackend.CheckScope(Configuration: TFileAssConfiguration): TFileAssResult;
-begin
-  if Configuration.RegistrationScope = fasAllUsers then
-    Result := FileAssResult(farRequiresDeployment, 'Use generated resources with a system package for all-user installation.')
-  else
-    Result := FileAssResult(farSuccess, '');
-end;
-
-function TFileAssLinuxBackend.BuildResources(Configuration: TFileAssConfiguration; Resources: TFileAssResources): TFileAssResult;
+{ The files to install, as paths below the data directory. }
+procedure TFileAssLinuxBackend.BuildResources(App: TFileAssManager; Resources: TFileAssResources);
 var
-  Desktop, Xml, MimeList, Arguments, IconName, IconPath, Extension, StaticArguments: utf8string;
+  Desktop, Xml, MimeList, Exec, IconName, Arguments: utf8string;
   Item: TFileAssTypeItem;
   I, J: integer;
   Types, Parsed: TStringList;
+
+  { An icon given as a file is installed into the hicolor theme under Name;
+    one given as a theme name is used as it is. }
+  function Icon(const Source, Kind, Name: utf8string): utf8string;
+  var
+    Path, Ext: utf8string;
+  begin
+    if Pos('/', Source) = 0 then Exit(Source);
+    Path := Source;
+    if Path[1] <> '/' then Path := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFileDir(App.Executable)) + Path);
+    Ext := LowerCase(ExtractFileExt(Path));
+    if Ext = '.svg' then Resources.AddFile('icons/hicolor/scalable/' + Kind + '/' + Name + Ext, FileAssReadFile(Path))
+    else if Ext = '.png' then Resources.AddFile('icons/hicolor/128x128/' + Kind + '/' + Name + Ext, FileAssReadFile(Path))
+    else
+      raise EFileAssConfiguration.Create('A Linux icon file must be an SVG or a 128-pixel PNG: ' + Source);
+    Result := Name;
+  end;
+
 begin
-  Result := FileAssResult(farInvalidConfiguration, '');
   Types := TStringList.Create;
   Parsed := TStringList.Create;
   try
-    StaticArguments := '';
-    for I := 0 to Configuration.FileTypes.Count - 1 do
+    // one .desktop entry launches every type, so there is one set of arguments
+    Arguments := '';
+    for I := 0 to App.FileTypes.Count - 1 do
     begin
-      Item := Configuration.FileTypes[I];
+      Item := App.FileTypes[I];
       if not Item.Enabled then Continue;
-      if Types.Count = 0 then StaticArguments := Item.OpenArguments
-      else if Item.OpenArguments <> StaticArguments then
-      begin
-        Result.Message := 'Linux requires the same OpenArguments for all enabled file types.';
-        Exit;
-      end;
+      if Types.Count = 0 then Arguments := Item.OpenArguments
+      else if Item.OpenArguments <> Arguments then
+        raise EFileAssConfiguration.Create('On Linux every file type must have the same OpenArguments.');
       if Types.IndexOf(Item.MimeType) < 0 then Types.Add(Item.MimeType);
     end;
-    if not FileAssParseArguments(StaticArguments, Parsed) then
-    begin
-      Result.Message := 'OpenArguments contains an unmatched double quote.';
-      Exit;
-    end;
-    Arguments := FileAssDesktopArgument(Configuration.ResolveExecutable(False));
-    for I := 0 to Parsed.Count - 1 do
-      Arguments := Arguments + ' ' + FileAssDesktopArgument(Parsed[I]);
+    if not FileAssParseArguments(Arguments, Parsed) then
+      raise EFileAssConfiguration.Create('OpenArguments has an unmatched double quote.');
+
     MimeList := '';
     Xml := '<?xml version="1.0" encoding="UTF-8"?>' + #10 + '<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">' + #10;
     for I := 0 to Types.Count - 1 do
     begin
       MimeList := MimeList + Types[I] + ';';
-      IconPath := '';
+      IconName := '';
       Xml := Xml + '  <mime-type type="' + FileAssXml(Types[I]) + '">' + #10;
-      for J := 0 to Configuration.FileTypes.Count - 1 do
+      for J := 0 to App.FileTypes.Count - 1 do
       begin
-        Item := Configuration.FileTypes[J];
+        Item := App.FileTypes[J];
         if not Item.Enabled or (Item.MimeType <> Types[I]) then Continue;
-        if IconPath = '' then
+        if IconName = '' then
         begin
-          IconPath := Item.LinuxIcon;
+          IconName := Item.LinuxIcon;
           Xml := Xml + '    <comment>' + FileAssXml(Item.Description) + '</comment>' + #10;
         end
-        else if (Item.LinuxIcon <> '') and (IconPath <> Item.LinuxIcon) then
-        begin
-          Result.Message := 'Extensions sharing a MIME type must use the same Linux icon.';
-          Exit;
-        end;
+        else if (Item.LinuxIcon <> '') and (Item.LinuxIcon <> IconName) then
+          raise EFileAssConfiguration.Create('Extensions sharing a MIME type must share a Linux icon.');
         Xml := Xml + '    <glob pattern="*' + FileAssXml(Item.Extension) + '"/>' + #10;
       end;
-      if IconPath <> '' then
+      if IconName <> '' then
       begin
-        if (IconPath[1] <> '/') and (Pos('/', IconPath) > 0) then
-          IconPath := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFileDir(Configuration.ResolveExecutable(False))) + IconPath);
-        if IconPath[1] = '/' then
-        begin
-          Extension := LowerCase(ExtractFileExt(IconPath));
-          if not (Extension = '.svg') and not (Extension = '.png') then
-          begin
-            Result.Message := 'Linux icon files must be SVG or 128-pixel PNG files.';
-            Exit;
-          end;
-          IconName := Configuration.ApplicationID + '-mime-' + IntToStr(I + 1);
-          if Extension = '.svg' then
-            Resources.AddFile('icons/hicolor/scalable/mimetypes/' + IconName + Extension,
-              FileAssReadFile(IconPath))
-          else
-            Resources.AddFile('icons/hicolor/128x128/mimetypes/' + IconName + Extension,
-              FileAssReadFile(IconPath));
-        end
-        else
-          IconName := IconPath;
-        // Keep a theme's generic page from outranking the custom hicolor icon.
+        IconName := Icon(IconName, 'mimetypes', App.ApplicationID + '-mime-' + IntToStr(I + 1));
+        // generic-icon too, or a theme's plain page outranks the icon just installed
         Xml := Xml + '    <icon name="' + FileAssXml(IconName) + '"/>' + #10 + '    <generic-icon name="' + FileAssXml(IconName) + '"/>' + #10;
       end;
       Xml := Xml + '  </mime-type>' + #10;
     end;
     Xml := Xml + '</mime-info>' + #10;
-    if Configuration.SupportsMultipleFiles then Arguments := Arguments + ' %F'
+
+    Exec := FileAssDesktopArgument(App.Executable);
+    for I := 0 to Parsed.Count - 1 do Exec := Exec + ' ' + FileAssDesktopArgument(Parsed[I]);
+    if App.SupportsMultipleFiles then Exec := Exec + ' %F'
     else
-      Arguments := Arguments + ' %f';
-    IconName := Configuration.LinuxApplicationIcon;
-    if IconName = '' then IconName := 'application-x-executable';
-    if Pos('/', IconName) > 0 then
-    begin
-      IconPath := IconName;
-      if IconPath[1] <> '/' then
-        IconPath := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFileDir(Configuration.ResolveExecutable(False))) + IconPath);
-      Extension := LowerCase(ExtractFileExt(IconPath));
-      IconName := Configuration.ApplicationID;
-      if Extension = '.svg' then
-        Resources.AddFile('icons/hicolor/scalable/apps/' + IconName + Extension, FileAssReadFile(IconPath))
-      else if Extension = '.png' then
-        Resources.AddFile('icons/hicolor/128x128/apps/' + IconName + Extension, FileAssReadFile(IconPath))
-      else
-      begin
-        Result.Message := 'Linux application icons must be SVG or 128-pixel PNG files.';
-        Exit;
-      end;
-    end;
-    Desktop := '[Desktop Entry]' + #10 + 'Type=Application' + #10 + 'Name=' + FileAssDesktopValue(Configuration.ApplicationName) +
-      #10 + 'Comment=' + FileAssDesktopValue(Configuration.ApplicationDescription) + #10 + 'Exec=' + Arguments + #10 + 'Terminal=false' +
-      #10 + 'NoDisplay=' + LowerCase(BoolToStr(not Configuration.ShowInApplicationMenu, True)) + #10 + 'Categories=Utility;' + #10 +
-      'Icon=' + FileAssDesktopValue(IconName) + #10 + 'MimeType=' + MimeList + #10 + 'X-FileAss-Owner=' + Configuration.ApplicationID + #10;
-    Resources.AddFile('applications/' + Configuration.ApplicationID + '.desktop', Desktop);
-    Resources.AddFile('mime/packages/' + Configuration.ApplicationID + '.xml', Xml);
-    Result := FileAssResult(farSuccess, 'Linux resources are ready.');
+      Exec := Exec + ' %f';
+    if App.LinuxApplicationIcon = '' then IconName := 'application-x-executable'
+    else
+      IconName := Icon(App.LinuxApplicationIcon, 'apps', App.ApplicationID);
+    Desktop := '[Desktop Entry]' + #10 + 'Type=Application' + #10 + 'Name=' + FileAssDesktopValue(App.ApplicationName) + #10 + 'Comment=' +
+      FileAssDesktopValue(App.ApplicationDescription) + #10 + 'Exec=' + Exec + #10 + 'Terminal=false' + #10 + 'NoDisplay=' +
+      LowerCase(BoolToStr(not App.ShowInApplicationMenu, True)) + #10 + 'Categories=Utility;' + #10 + 'Icon=' + FileAssDesktopValue(IconName) + #10 + 'MimeType=' + MimeList + #10;
+    Resources.AddFile('applications/' + App.ApplicationID + '.desktop', Desktop);
+    Resources.AddFile('mime/packages/' + App.ApplicationID + '.xml', Xml);
   finally
     Parsed.Free;
     Types.Free;
   end;
 end;
 
-function TFileAssLinuxBackend.OwnedPath(const Path, ApplicationID: utf8string): boolean;
-begin
-  Result := (Path = 'applications/' + ApplicationID + '.desktop') or (Path = 'mime/packages/' + ApplicationID + '.xml') or
-    (Path = 'icons/hicolor/scalable/apps/' + ApplicationID + '.svg') or (Path = 'icons/hicolor/128x128/apps/' + ApplicationID + '.png') or
-    ((Pos('icons/hicolor/scalable/mimetypes/' + ApplicationID + '-mime-', Path) = 1) or (Pos('icons/hicolor/128x128/mimetypes/' + ApplicationID + '-mime-', Path) = 1));
-  Result := Result and (Pos('..', Path) = 0) and (Pos('\', Path) = 0) and (Pos(#9, Path) = 0) and (Pos(#10, Path) = 0);
-end;
-
-procedure TFileAssLinuxBackend.ReadManifest(const Root, ApplicationID: utf8string; Manifest: TStrings);
+{ Deletes this application's installed files, except those in Keep, and
+  says how many went. }
+function TFileAssLinuxBackend.RemoveInstalled(const Root, ID: utf8string; Keep: TFileAssResources): integer;
+const
+  // the last is a list earlier versions kept of what they had installed
+  single: array[0..4] of string = ('applications/%s.desktop', 'mime/packages/%s.xml', 'icons/hicolor/scalable/apps/%s.svg',
+    'icons/hicolor/128x128/apps/%s.png', 'fileass/%s.manifest');
+  TypeIcons: array[0..1] of string = ('icons/hicolor/scalable/mimetypes/', 'icons/hicolor/128x128/mimetypes/');
 var
-  I, Separator: integer;
-  Line: utf8string;
-begin
-  if not FileExists(Root + '/fileass/' + ApplicationID + '.manifest') then Exit;
-  Manifest.Text := FileAssReadFile(Root + '/fileass/' + ApplicationID + '.manifest');
-  if (Manifest.Count = 0) or (Manifest[0] <> 'FileAss:' + ApplicationID) then
-    raise Exception.Create('The ownership manifest has an invalid identity.');
-  Manifest.Delete(0);
-  Manifest.NameValueSeparator := #9;
-  for I := 0 to Manifest.Count - 1 do
-  begin
-    Line := Manifest[I];
-    Separator := Pos(#9, Line);
-    if (Separator = 0) or not OwnedPath(Copy(Line, 1, Separator - 1), ApplicationID) or (Length(Copy(Line, Separator + 1, MaxInt)) <> 32) then
-      raise Exception.Create('The ownership manifest contains an invalid resource.');
-  end;
-end;
-
-procedure TFileAssLinuxBackend.CheckOwnedFiles(const Root: utf8string; Manifest: TStrings);
-var
+  Found: TStringList;
+  Info: TSearchRec;
   I: integer;
-  Path: utf8string;
 begin
-  for I := 0 to Manifest.Count - 1 do
-  begin
-    Path := Root + '/' + Manifest.Names[I];
-    if FileExists(Path) and (MD5Print(MD5String(FileAssReadFile(Path))) <> Manifest.ValueFromIndex[I]) then
-      raise Exception.Create('An installed resource was changed; it will be preserved: ' + Manifest.Names[I]);
+  Result := 0;
+  Found := TStringList.Create;
+  try
+    for I := Low(single) to High(single) do Found.Add(Format(single[I], [ID]));
+    for I := Low(TypeIcons) to High(TypeIcons) do
+    begin
+      if FindFirst(Root + '/' + TypeIcons[I] + ID + '-mime-*', faAnyFile, Info) = 0 then
+        repeat
+          Found.Add(TypeIcons[I] + Info.Name);
+        until FindNext(Info) <> 0;
+      FindClose(Info);
+    end;
+    for I := 0 to Found.Count - 1 do
+    begin
+      if Assigned(Keep) and (Keep.IndexOfPath(Found[I]) >= 0) then Continue;
+      if not FileExists(Root + '/' + Found[I]) then Continue;
+      if not DeleteFile(Root + '/' + Found[I]) then raise Exception.Create('Cannot remove ' + Found[I]);
+      Inc(Result);
+    end;
+  finally
+    Found.Free;
   end;
 end;
 
+{ The desktop reads its caches, not the files, so they are rebuilt. }
 function TFileAssLinuxBackend.UpdateDatabases(const Root: utf8string): TFileAssResult;
 var
   Output: string;
@@ -215,13 +181,9 @@ var
     Executable: utf8string;
   begin
     Executable := ExeSearch(Utility);
-    if Executable = '' then
-    begin
-      Problems := Problems + ExtractFileName(Utility) + ' is unavailable. ';
-      Exit;
-    end;
-    if not RunCommand(Executable, [Directory], Output) then
-      Problems := Problems + ExtractFileName(Utility) + ' failed: ' + Trim(Output) + ' ';
+    if Executable = '' then Problems := Problems + Utility + ' is not installed. '
+    else if not RunCommand(Executable, [Directory], Output) then
+      Problems := Problems + Utility + ' failed: ' + Trim(Output) + ' ';
   end;
 
 begin
@@ -232,228 +194,36 @@ begin
   begin
     IconUtility := ExeSearch('gtk-update-icon-cache');
     if (IconUtility <> '') and not RunCommand(IconUtility, ['--ignore-theme-index', '--force', Root + '/icons/hicolor'], Output) then
-      Problems := Problems + 'Icon cache update failed: ' + Trim(Output) + ' ';
-    if fpUtime(PChar(Root + '/icons/hicolor'), nil) <> 0 then
-      Problems := Problems + 'Cannot refresh the icon-theme timestamp. ';
+      Problems := Problems + 'gtk-update-icon-cache failed: ' + Trim(Output) + ' ';
+    // a newer directory time is what makes running programs look again
+    fpUtime(PChar(Root + '/icons/hicolor'), nil);
   end;
-  if Problems = '' then Result := FileAssResult(farSuccess, 'Association resources and databases updated.')
+  if Problems = '' then Result := FileAssResult(farSuccess, 'File types registered.')
   else
-    Result := FileAssResult(farPartialSuccess, 'Resources changed. ' + Problems);
+    Result := FileAssResult(farPartialSuccess, 'The files are in place, but: ' + Problems);
 end;
 
-function TFileAssLinuxBackend.RegisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
+function TFileAssLinuxBackend.RegisterTypes(App: TFileAssManager): TFileAssResult;
 var
   Resources: TFileAssResources;
-  Manifest, NewManifest: TStringList;
-  Backups, Obsolete: TFileAssResources;
-  Existing: TStringList;
-  Root, Path, ManifestPath: utf8string;
-  I, Applied, Deleted: integer;
-  HadManifest: boolean;
-  OldManifest: rawbytestring;
-begin
-  Result := CheckScope(Configuration);
-  if not Result.Succeeded then Exit;
-  Resources := TFileAssResources.Create;
-  Backups := TFileAssResources.Create;
-  Obsolete := TFileAssResources.Create;
-  Existing := TStringList.Create;
-  Manifest := TStringList.Create;
-  NewManifest := TStringList.Create;
-  Applied := 0;
-  Deleted := 0;
-  NewManifest.NameValueSeparator := #9;
-  try
-    try
-      Result := BuildResources(Configuration, Resources);
-      if not Result.Succeeded then Exit;
-      Root := DataDirectory;
-      ManifestPath := Root + '/fileass/' + Configuration.ApplicationID + '.manifest';
-      HadManifest := FileExists(ManifestPath);
-      OldManifest := '';
-      if HadManifest then OldManifest := FileAssReadFile(ManifestPath);
-      ReadManifest(Root, Configuration.ApplicationID, Manifest);
-      CheckOwnedFiles(Root, Manifest);
-      NewManifest.Add('FileAss:' + Configuration.ApplicationID);
-      for I := 0 to Resources.Count - 1 do
-      begin
-        Path := Root + '/' + Resources[I].Path;
-        if FileExists(Path) and (Manifest.IndexOfName(Resources[I].Path) < 0) then
-          raise Exception.Create('An unowned resource already exists: ' + Resources[I].Path);
-        if FileExists(Path) then
-        begin
-          Backups.AddFile(Path, FileAssReadFile(Path));
-          Existing.Add(Path);
-        end
-        else
-          Backups.AddFile(Path, '');
-        Backups[I].Path := Path;
-        NewManifest.Add(Resources[I].Path + #9 + MD5Print(MD5String(Resources[I].Contents)));
-      end;
-      for I := 0 to Manifest.Count - 1 do
-        if NewManifest.IndexOfName(Manifest.Names[I]) < 0 then
-        begin
-          Path := Root + '/' + Manifest.Names[I];
-          if FileExists(Path) then Obsolete.AddFile(Path, FileAssReadFile(Path));
-        end;
-      for I := 0 to Resources.Count - 1 do
-      begin
-        Path := Root + '/' + Resources[I].Path;
-        if not ForceDirectories(ExtractFileDir(Path)) then
-          raise Exception.Create('Cannot create the resource directory.');
-        Inc(Applied);
-        FileAssWriteFile(Path, Resources[I].Contents);
-      end;
-      for I := 0 to Obsolete.Count - 1 do
-      begin
-        Inc(Deleted);
-        if not DeleteFile(Obsolete[I].Path) then
-          raise Exception.Create('Cannot remove an obsolete owned resource: ' + Obsolete[I].Path);
-      end;
-      if not ForceDirectories(ExtractFileDir(ManifestPath)) then
-        raise Exception.Create('Cannot create the ownership directory.');
-      FileAssWriteFile(ManifestPath, NewManifest.Text);
-      Result := UpdateDatabases(Root);
-    except
-      on E: Exception do
-      begin
-        Result := FileAssFailure(E);
-        if (Applied > 0) or (Deleted > 0) then
-        begin
-          try
-            for I := 0 to Applied - 1 do
-              if Existing.IndexOf(Backups[I].Path) >= 0 then
-                FileAssWriteFile(Backups[I].Path, Backups[I].Contents)
-              else if not DeleteFile(Backups[I].Path) then
-                raise Exception.Create('Cannot remove a newly created resource.');
-            for I := 0 to Deleted - 1 do
-              FileAssWriteFile(Obsolete[I].Path, Obsolete[I].Contents);
-            if HadManifest then FileAssWriteFile(ManifestPath, OldManifest)
-            else if FileExists(ManifestPath) then DeleteFile(ManifestPath);
-          except
-            on RollbackError: Exception do
-            begin
-              Result.Code := farPartialSuccess;
-              Result.Message := Result.Message + ' Recovery failed: ' + RollbackError.Message;
-            end;
-          end;
-        end;
-      end;
-    end;
-  finally
-    Existing.Free;
-    Obsolete.Free;
-    NewManifest.Free;
-    Manifest.Free;
-    Backups.Free;
-    Resources.Free;
-  end;
-end;
-
-function TFileAssLinuxBackend.UnregisterTypes(Configuration: TFileAssConfiguration): TFileAssResult;
-var
-  Manifest: TStringList;
   Root, Path: utf8string;
-  I, Removed: integer;
-begin
-  Result := CheckScope(Configuration);
-  if not Result.Succeeded then Exit;
-  Manifest := TStringList.Create;
-  Removed := 0;
-  try
-    try
-      Root := DataDirectory;
-      ReadManifest(Root, Configuration.ApplicationID, Manifest);
-      CheckOwnedFiles(Root, Manifest);
-      for I := 0 to Manifest.Count - 1 do
-      begin
-        Path := Root + '/' + Manifest.Names[I];
-        if FileExists(Path) and not DeleteFile(Path) then
-          raise Exception.Create('Cannot remove an owned resource: ' + Manifest.Names[I]);
-        Inc(Removed);
-      end;
-      Path := Root + '/fileass/' + Configuration.ApplicationID + '.manifest';
-      if FileExists(Path) and not DeleteFile(Path) then
-        raise Exception.Create('Cannot remove the ownership manifest.');
-      if Manifest.Count = 0 then Result := FileAssResult(farSuccess, 'No owned registrations remain.')
-      else
-        Result := UpdateDatabases(Root);
-    except
-      on E: Exception do
-      begin
-        Result := FileAssFailure(E);
-        if Removed > 0 then Result.Code := farPartialSuccess;
-      end;
-    end;
-  finally
-    Manifest.Free;
-  end;
-end;
-
-function TFileAssLinuxBackend.GetStatus(Configuration: TFileAssConfiguration; out Diagnostic: TFileAssResult): TFileAssStatus;
-var
-  Resources: TFileAssResources;
-  Root: utf8string;
-  I, Correct: integer;
-  Manifest: TStringList;
-begin
-  Result := fasVerificationFailed;
-  Diagnostic := CheckScope(Configuration);
-  if not Diagnostic.Succeeded then Exit(fasUnavailable);
-  Resources := TFileAssResources.Create;
-  Manifest := TStringList.Create;
-  try
-    try
-      Diagnostic := BuildResources(Configuration, Resources);
-      if not Diagnostic.Succeeded then Exit;
-      Root := DataDirectory;
-      ReadManifest(Root, Configuration.ApplicationID, Manifest);
-      Correct := 0;
-      for I := 0 to Resources.Count - 1 do
-        if (Manifest.IndexOfName(Resources[I].Path) >= 0) and FileExists(Root + '/' + Resources[I].Path) and
-          (FileAssReadFile(Root + '/' + Resources[I].Path) = Resources[I].Contents) then Inc(Correct);
-      if Correct = 0 then Result := fasNotRegistered
-      else if Correct = Resources.Count then Result := fasFullyRegistered
-      else
-        Result := fasPartiallyRegistered;
-      Diagnostic := FileAssResult(farSuccess, IntToStr(Correct) + ' of ' + IntToStr(Resources.Count) + ' configured resources match. Default selection is separate.');
-    except
-      on E: Exception do Diagnostic := FileAssFailure(E);
-    end;
-  finally
-    Manifest.Free;
-    Resources.Free;
-  end;
-end;
-
-function TFileAssLinuxBackend.GenerateDeploymentFiles(Configuration: TFileAssConfiguration; const OutputDirectory: utf8string): TFileAssResult;
-var
-  Resources: TFileAssResources;
   I: integer;
-  Root, Path, Manifest: utf8string;
 begin
+  if App.RegistrationScope = fasAllUsers then Exit(FileAssResult(farRequiresDeployment, AllUsersHint));
   Resources := TFileAssResources.Create;
   try
     try
-      Result := BuildResources(Configuration, Resources);
-      if not Result.Succeeded then Exit;
-      Root := ExcludeTrailingPathDelimiter(ExpandFileName(OutputDirectory));
-      Manifest := '';
+      BuildResources(App, Resources);
+      Root := DataDirectory;
       for I := 0 to Resources.Count - 1 do
       begin
         Path := Root + '/' + Resources[I].Path;
-        if FileExists(Path) then raise Exception.Create('Output already exists: ' + Resources[I].Path);
-        Manifest := Manifest + Resources[I].Path + #10;
-      end;
-      if FileExists(Root + '/manifest.txt') then raise Exception.Create('Output manifest already exists.');
-      for I := 0 to Resources.Count - 1 do
-      begin
-        Path := Root + '/' + Resources[I].Path;
-        if not ForceDirectories(ExtractFileDir(Path)) then raise Exception.Create('Cannot create output directory.');
+        if not ForceDirectories(ExtractFileDir(Path)) then raise Exception.Create('Cannot create ' + ExtractFileDir(Path));
         FileAssWriteFile(Path, Resources[I].Contents);
       end;
-      FileAssWriteFile(Root + '/manifest.txt', Manifest);
-      Result := FileAssResult(farSuccess, 'Deployment resources generated without installation.');
+      // whatever an earlier registration installed that this one does not
+      RemoveInstalled(Root, App.ApplicationID, Resources);
+      Result := UpdateDatabases(Root);
     except
       on E: Exception do Result := FileAssFailure(E);
     end;
@@ -462,7 +232,92 @@ begin
   end;
 end;
 
-function TFileAssLinuxBackend.Preview(Configuration: TFileAssConfiguration; Text: TStrings): TFileAssResult;
+function TFileAssLinuxBackend.UnregisterTypes(App: TFileAssManager): TFileAssResult;
+var
+  Root: utf8string;
+begin
+  if App.RegistrationScope = fasAllUsers then Exit(FileAssResult(farRequiresDeployment, AllUsersHint));
+  try
+    Root := DataDirectory;
+    if RemoveInstalled(Root, App.ApplicationID, nil) = 0 then Exit(FileAssResult(farSuccess, 'Nothing was registered.'));
+    Result := UpdateDatabases(Root);
+    if Result.Succeeded then Result.Message := 'File types removed.';
+  except
+    on E: Exception do Result := FileAssFailure(E);
+  end;
+end;
+
+function TFileAssLinuxBackend.GetStatus(App: TFileAssManager; out Diagnostic: TFileAssResult): TFileAssStatus;
+var
+  Resources: TFileAssResources;
+  Root: utf8string;
+  I, Correct: integer;
+begin
+  Result := fasVerificationFailed;
+  if App.RegistrationScope = fasAllUsers then
+  begin
+    Diagnostic := FileAssResult(farRequiresDeployment, AllUsersHint);
+    Exit(fasUnavailable);
+  end;
+  Resources := TFileAssResources.Create;
+  try
+    try
+      BuildResources(App, Resources);
+      Root := DataDirectory;
+      Correct := 0;
+      for I := 0 to Resources.Count - 1 do
+        if FileExists(Root + '/' + Resources[I].Path) and (FileAssReadFile(Root + '/' + Resources[I].Path) = Resources[I].Contents) then
+          Inc(Correct);
+      if Correct = 0 then Result := fasNotRegistered
+      else if Correct = Resources.Count then Result := fasFullyRegistered
+      else
+        Result := fasPartiallyRegistered;
+      Diagnostic := FileAssResult(farSuccess, Format('%d of %d files are installed and current. Which program is the default is the user''s choice.',
+        [Correct, Resources.Count]));
+    except
+      on E: Exception do Diagnostic := FileAssFailure(E);
+    end;
+  finally
+    Resources.Free;
+  end;
+end;
+
+function TFileAssLinuxBackend.GenerateDeploymentFiles(App: TFileAssManager; const OutputDirectory: utf8string): TFileAssResult;
+var
+  Resources: TFileAssResources;
+  I: integer;
+  Root, Path, List: utf8string;
+begin
+  Resources := TFileAssResources.Create;
+  try
+    try
+      BuildResources(App, Resources);
+      Root := ExcludeTrailingPathDelimiter(ExpandFileName(OutputDirectory));
+      // nothing already there is overwritten
+      List := '';
+      for I := 0 to Resources.Count - 1 do
+      begin
+        if FileExists(Root + '/' + Resources[I].Path) then raise Exception.Create('Already there: ' + Resources[I].Path);
+        List := List + Resources[I].Path + #10;
+      end;
+      if FileExists(Root + '/manifest.txt') then raise Exception.Create('Already there: manifest.txt');
+      for I := 0 to Resources.Count - 1 do
+      begin
+        Path := Root + '/' + Resources[I].Path;
+        if not ForceDirectories(ExtractFileDir(Path)) then raise Exception.Create('Cannot create ' + ExtractFileDir(Path));
+        FileAssWriteFile(Path, Resources[I].Contents);
+      end;
+      FileAssWriteFile(Root + '/manifest.txt', List);
+      Result := FileAssResult(farSuccess, 'Files written for an installer. Nothing was registered here.');
+    except
+      on E: Exception do Result := FileAssFailure(E);
+    end;
+  finally
+    Resources.Free;
+  end;
+end;
+
+function TFileAssLinuxBackend.Preview(App: TFileAssManager; Text: TStrings): TFileAssResult;
 var
   Resources: TFileAssResources;
   I: integer;
@@ -471,16 +326,16 @@ begin
   Resources := TFileAssResources.Create;
   try
     try
-      Result := BuildResources(Configuration, Resources);
-      if not Result.Succeeded then Exit;
+      BuildResources(App, Resources);
       for I := 0 to Resources.Count - 1 do
       begin
         Text.Add('[' + Resources[I].Path + ']');
-        if ExtractFileExt(Resources[I].Path) = '.png' then Text.Add('(binary icon resource)')
+        if ExtractFileExt(Resources[I].Path) = '.png' then Text.Add('(a PNG icon)')
         else
           Text.Add(Resources[I].Contents);
         Text.Add('');
       end;
+      Result := FileAssResult(farSuccess, 'This is what would be installed.');
     except
       on E: Exception do Result := FileAssFailure(E);
     end;
@@ -489,23 +344,24 @@ begin
   end;
 end;
 
+{ Only Cinnamon has a settings page worth opening for this; elsewhere the
+  file manager's Open With is the place. }
 function TFileAssLinuxBackend.OpenDefaultAppsSettings: TFileAssResult;
 var
   Settings: TProcess;
   ProgramPath: string;
 begin
   ProgramPath := '';
-  if Pos('cinnamon', LowerCase(GetEnvironmentVariable('XDG_CURRENT_DESKTOP'))) > 0 then
-    ProgramPath := ExeSearch('cinnamon-settings');
-  if ProgramPath = '' then Exit(FileAssResult(farUnsupported,
-      'For these document types, right-click a sample in your file manager and choose Open With to set the default application.'));
+  if Pos('cinnamon', LowerCase(GetEnvironmentVariable('XDG_CURRENT_DESKTOP'))) > 0 then ProgramPath := ExeSearch('cinnamon-settings');
+  if ProgramPath = '' then
+    Exit(FileAssResult(farUnsupported, 'Right-click one of the files in your file manager and choose Open With to set the default program.'));
   Settings := TProcess.Create(nil);
   try
     try
       Settings.Executable := ProgramPath;
       Settings.Parameters.Add('default');
       Settings.Execute;
-      Result := FileAssResult(farSuccess, 'Opened default application settings. For custom document types, use the file manager Open With dialog.');
+      Result := FileAssResult(farSuccess, 'Opened the default applications settings.');
     except
       on E: Exception do Result := FileAssFailure(E);
     end;
