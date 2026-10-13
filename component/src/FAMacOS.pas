@@ -383,7 +383,7 @@ end;
 
 function TFileAssMacOSBackend.GetStatus(Configuration: TFileAssConfiguration; out Diagnostic: TFileAssResult): TFileAssStatus;
 begin
-  Diagnostic := FileAssResult(farUnsupported, 'Launch Services inspection requires macOS testing.');
+  Diagnostic := FileAssResult(farUnsupported, 'macOS reads file types from the application bundle''s Info.plist; export it and install the bundle.');
   Result := fasUnavailable;
 end;
 

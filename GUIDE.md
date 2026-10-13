@@ -110,7 +110,7 @@ installer, run an installation script, or change the current associations.
 |---|---|
 | Windows | An application-ID `.reg` file containing extension, document name, icon path, and open-command entries. Referenced icons must be distributed separately. |
 | Linux | A `.desktop` application entry, MIME XML defining the file types, and document icon resources when configured with icon files. |
-| macOS | `Info.plist` document-type metadata for an application bundle; needs macOS testing. |
+| macOS | `Info.plist` document-type metadata for an application bundle. Tested on macOS 15: a document macOS opens with the program reaches the running copy. |
 
 Each export also includes `manifest.txt`, listing the generated files.
 The Linux `.desktop` entry tells the desktop how to launch your application
@@ -143,7 +143,8 @@ These launchers do not enable startup at login.
 
 On macOS, **MacApplicationIcon** adds `CFBundleIconFile` to the exported
 `Info.plist`. The installer supplies the `.app` bundle and its icon; FileAss does
-not create a bundle or desktop alias. macOS testing is still needed. Windows
+not create a bundle or desktop alias. How the icon looks in Finder has not
+been checked yet. Windows
 exports continue to contain associations; Start-menu and desktop shortcuts are
 handled by the Windows installer.
 
@@ -191,7 +192,8 @@ If other work runs in `FormCreate`, skip it when `Role <> firPrimary`.
 The FCL transport uses temporary files. Instance ownership uses an OS-held
 lock released when the process exits, including a crash; a leftover lock
 file does not prevent startup. Forwarded requests still in the inbox remain for the next
-primary. Windows and Linux have been tested; macOS still needs testing.
+primary. Windows, Linux and macOS have been tested - on a Mac: slow starts,
+fifty launches at once, a killed primary, and documents opened by macOS.
 
 </details>
 

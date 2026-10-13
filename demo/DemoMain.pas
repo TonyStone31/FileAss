@@ -38,8 +38,22 @@ var
 
 implementation
 
-uses LCLIntf, LazFileUtils;
+uses LCLIntf, LazFileUtils {$ifdef darwin}, Process{$endif};
   {$R *.lfm}
+
+function RevealDocument(const Path: string): boolean;
+  {$ifdef darwin}
+var Output: string;
+  {$endif}
+begin
+  {$if declared(SelectInFolder)}
+  Result := SelectInFolder(Path);
+  {$elseif defined(darwin)}
+  Result := RunCommand('/usr/bin/open', ['-R', Path], Output);
+  {$else}
+  Result := OpenDocument(ExtractFileDir(Path));
+  {$endif}
+end;
 
 function TDemoForm.AssetPath(const RelativePath: string): string;
 begin
@@ -147,7 +161,7 @@ begin
     Document := 'documents/Blue note with spaces.fanote'
   else
     Document := 'documents/Amber café sketch.fasketch';
-  if not SelectInFolder(AssetPath(Document)) then
+  if not RevealDocument(AssetPath(Document)) then
     ShowMessage('Cannot show the sample document in the file manager.');
 end;
 

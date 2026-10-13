@@ -95,6 +95,9 @@ function SessionForProcess(ProcessID: DWORD; var SessionID: DWORD): BOOL; stdcal
   {$endif}
 
 const
+  {$if defined(darwin) and not declared(O_NOFOLLOW)}
+  O_NOFOLLOW = $00000100;  // FPC 3.2's Darwin RTL leaves it out
+  {$endif}
   ParameterMessage = 1;
   PacketSignature = $31494146;
   MaxPacketSize = 1024 * 1024;

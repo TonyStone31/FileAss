@@ -37,3 +37,6 @@
 !/demo/documents/*.fasketch
 /demo/ConsoleExample/*
 !/demo/ConsoleExample/*.lpr
+!/images/
+!/images/macos/
+!/images/macos/*.png
