@@ -50,12 +50,27 @@ and [console applications](GUIDE.md#console-applications) use the same core.
 The [developer guide](GUIDE.md) covers setup, properties, and platform details.
 Property explanations are also available right in the Object Inspector.
 
-**Linux:** tested on Mint Cinnamon. **Windows:** smoke-tested under Wine;
-real Windows testers welcome. **macOS:** tested on Sequoia 15 (Intel, in a
-virtual machine) with Lazarus 4.8 and FPC 3.2.4 - the `Info.plist` export,
-the single-instance handoff, and documents macOS opens with the program
-arriving in the running copy. Clicking through Finder by hand, and how the
-document icons look there, have not been checked yet.
+### ✅ What it has been tested on
+
+| | Linux | Windows | macOS |
+|---|---|---|---|
+| Tested on | Mint, Cinnamon desktop | Wine | Sequoia 15, Intel, in a virtual machine |
+| Built with | Lazarus trunk, FPC 3.3.1 | the same, cross-compiled | Lazarus 4.8, FPC 3.2.4 |
+| Core unit tests | ✅ | ✅ | ✅ |
+| Register and remove file types | ✅ | ✅ | not how a Mac does it - see the next row |
+| Installer export | ✅ `.desktop`, MIME, icons | ✅ `.reg` | ✅ `Info.plist`, accepted by Apple's `plutil` |
+| Document icons show in the file manager | ✅ | registered; not seen in a real Explorer yet | not checked yet |
+| One instance: unit tests | ✅ | ✅ | ✅ |
+| Fifty copies started at once pick one primary and lose nothing | ✅ | ✅ | ✅ |
+| Launches queued while the first copy is still starting | ✅ | ✅ | ✅ |
+| A killed primary lets go, and its queue survives | ✅ | ✅ | ✅ |
+| A document opened by the system arrives in the running copy | ✅ | ✅ | ✅ |
+| The demo, clicked through by hand | ✅ | under Wine only | not yet |
+
+Still wanted: a run on real Windows 10 or 11, the demo clicked through in
+Finder on a real Mac (and how the document icons look there), Apple Silicon,
+and file managers other than Cinnamon's. If you can try one,
+[say how it went](../../issues).
 
 ![The demo on macOS](images/macos/demo.png)
 
