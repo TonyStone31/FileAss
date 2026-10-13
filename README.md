@@ -54,22 +54,22 @@ Property explanations are also available right in the Object Inspector.
 
 | | Linux | Windows | macOS |
 |---|---|---|---|
-| Tested on | Mint, Cinnamon desktop | Wine | Sequoia 15, Intel, in a virtual machine |
+| Tested on | Mint, Cinnamon desktop | Windows 10, and Wine | Sequoia 15, Intel, in a virtual machine |
 | Built with | Lazarus trunk, FPC 3.3.1 | the same, cross-compiled | Lazarus 4.8, FPC 3.2.4 |
 | Core unit tests | ✅ | ✅ | ✅ |
 | Register and remove file types | ✅ | ✅ | not how a Mac does it - see the next row |
 | Installer export | ✅ `.desktop`, MIME, icons | ✅ `.reg` | ✅ `Info.plist`, accepted by Apple's `plutil` |
-| Document icons show in the file manager | ✅ | registered; not seen in a real Explorer yet | not checked yet |
+| Document icons show in the file manager | ✅ | ✅ | not checked yet |
 | One instance: unit tests | ✅ | ✅ | ✅ |
 | Fifty copies started at once pick one primary and lose nothing | ✅ | ✅ | ✅ |
 | Launches queued while the first copy is still starting | ✅ | ✅ | ✅ |
 | A killed primary lets go, and its queue survives | ✅ | ✅ | ✅ |
 | A document opened by the system arrives in the running copy | ✅ | ✅ | ✅ |
-| The demo, clicked through by hand | ✅ | under Wine only | not yet |
+| The demo, clicked through by hand | ✅ | ✅ | not yet |
 
-Still wanted: a run on real Windows 10 or 11, the demo clicked through in
-Finder on a real Mac (and how the document icons look there), Apple Silicon,
-and file managers other than Cinnamon's. If you can try one,
+Still wanted: the demo clicked through in Finder on a real Mac (and how the
+document icons look there), Apple Silicon, Windows 11, and file managers
+other than Cinnamon's. If you can try one,
 [say how it went](../../issues).
 
 ![The demo on macOS](images/macos/demo.png)
