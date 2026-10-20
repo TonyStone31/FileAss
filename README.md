@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/fileass.png" width="200" alt="FileAss donkey mascot carrying files">
+</p>
+
 # FileAss
 
 ### File associations and single-instance apps for Lazarus.

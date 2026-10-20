@@ -38,5 +38,6 @@
 /demo/ConsoleExample/*
 !/demo/ConsoleExample/*.lpr
 !/images/
+!/images/fileass.png
 !/images/macos/
 !/images/macos/*.png
