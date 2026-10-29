@@ -48,6 +48,7 @@ is available for items in the **FileTypes** collection.
 | `RegistrationScope` | Default: `fasCurrentUser`. `fasAllUsers` requires elevation on Windows or system-package deployment on Linux. |
 | `SupportsMultipleFiles` | Default `False`. Set `True` for Linux batch arguments (`%F`) and Windows multi-selection (`MultiSelectModel` `Player`, with shell limits). |
 | `ShowInApplicationMenu` | Default `False`. Show the Linux launcher in the Applications menu when registering or exporting. |
+| `ClaimDefault` | Default `False`. On Linux, make the program the default for its types in the user's `mimeapps.list` when registering, and report another program there as needing repair. Off leaves the default to the user. |
 | `LinuxApplicationIcon` | Launcher icon: SVG/128-pixel PNG path or installed theme name. Relative paths resolve beside the executable. |
 | `MacApplicationIcon` | Application icon filename, such as `App.icns`, supplied by the installer in the bundle's `Contents/Resources`. |
 | `FileTypes` | Collection of file extensions and their settings. |
@@ -137,6 +138,15 @@ On Linux, set **ShowInApplicationMenu = True** and optionally
 desktop entry visible in the Applications menu. `UnregisterAll` removes the
 entry and its icon. The demo's **Add to Applications menu** checkbox
 applies this option when you register or export.
+
+Registering writes the types and the launcher and refreshes the desktop's
+caches, which is what makes them take effect; the status reports a cache
+older than the files, so a repair knows to run the refresh again. Which
+program opens a type is the user's choice unless **ClaimDefault = True**,
+which also names this program as the default for its own types, the way
+`xdg-mime default` does, and reports any other program chosen there as
+needing repair. Leave it off for types other programs commonly handle;
+turn it on for a type that is the program's own.
 
 Exports use the same settings. A Linux installer can install the generated
 `applications/*.desktop` entry and icon resources, and optionally place a copy

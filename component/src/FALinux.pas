@@ -2,7 +2,7 @@ unit FALinux;
 {$mode objfpc}{$H+}{$codepage utf8}
 interface
 
-uses Classes, SysUtils, Process, BaseUnix, FATypes, FACollection, FACore, FAFormats;
+uses Classes, SysUtils, Process, BaseUnix, IniFiles, FATypes, FACollection, FACore, FAFormats;
 
 type
   { Linux: a .desktop entry, a shared-mime-info package and icons, under the
@@ -14,6 +14,12 @@ type
     procedure BuildResources(App: TFileAssManager; Resources: TFileAssResources);
     function RemoveInstalled(const Root, ID: utf8string; Keep: TFileAssResources): integer;
     function UpdateDatabases(const Root: utf8string): TFileAssResult;
+    function MimeAppsFile: utf8string;
+    procedure MimeTypes(App: TFileAssManager; Types: TStrings);
+    procedure ClaimDefaults(App: TFileAssManager);
+    procedure ReleaseDefaults(App: TFileAssManager);
+    function OtherDefaults(App: TFileAssManager): utf8string;
+    function StaleDatabases(const Root: utf8string; Resources: TFileAssResources): utf8string;
   public
     function RegisterTypes(App: TFileAssManager): TFileAssResult; override;
     function UnregisterTypes(App: TFileAssManager): TFileAssResult; override;
@@ -203,6 +209,166 @@ begin
     Result := FileAssResult(farPartialSuccess, 'The files are in place, but: ' + Problems);
 end;
 
+{ The user's mimeapps.list, where the default program for each type is
+  chosen: under XDG_CONFIG_HOME, or ~/.config. }
+function TFileAssLinuxBackend.MimeAppsFile: utf8string;
+var
+  Dir: utf8string;
+begin
+  Dir := GetEnvironmentVariable('XDG_CONFIG_HOME');
+  if Dir = '' then Dir := IncludeTrailingPathDelimiter(GetEnvironmentVariable('HOME')) + '.config';
+  Result := IncludeTrailingPathDelimiter(Dir) + 'mimeapps.list';
+end;
+
+{ The MIME types of the enabled file types, each once. }
+procedure TFileAssLinuxBackend.MimeTypes(App: TFileAssManager; Types: TStrings);
+var
+  I: integer;
+begin
+  for I := 0 to App.FileTypes.Count - 1 do
+    if App.FileTypes[I].Enabled and (Types.IndexOf(App.FileTypes[I].MimeType) < 0) then
+      Types.Add(App.FileTypes[I].MimeType);
+end;
+
+{ The first entry of a mimeapps.list value: the list is "a.desktop;b.desktop;". }
+function FirstEntry(const Value: utf8string): utf8string;
+var
+  P: integer;
+begin
+  Result := Trim(Value);
+  P := Pos(';', Result);
+  if P > 0 then Result := Copy(Result, 1, P - 1);
+end;
+
+{ Makes this program the default for its types, the way xdg-mime default
+  does: named first under Default Applications and listed under Added
+  Associations. Other programs' entries are left as they are. }
+procedure TFileAssLinuxBackend.ClaimDefaults(App: TFileAssManager);
+var
+  Ini: TIniFile;
+  Types: TStringList;
+  Entry, Added: utf8string;
+  I: integer;
+begin
+  Entry := App.ApplicationID + '.desktop';
+  Types := TStringList.Create;
+  try
+    MimeTypes(App, Types);
+    if not ForceDirectories(ExtractFileDir(MimeAppsFile)) then raise Exception.Create('Cannot create ' + ExtractFileDir(MimeAppsFile));
+    Ini := TIniFile.Create(MimeAppsFile);
+    try
+      for I := 0 to Types.Count - 1 do
+      begin
+        Ini.WriteString('Default Applications', Types[I], Entry);
+        Added := Trim(Ini.ReadString('Added Associations', Types[I], ''));
+        if Pos(Entry + ';', Added + ';') = 0 then
+          Ini.WriteString('Added Associations', Types[I], Entry + ';' + Added);
+      end;
+      Ini.UpdateFile;
+    finally
+      Ini.Free;
+    end;
+  finally
+    Types.Free;
+  end;
+end;
+
+{ Takes this program out of mimeapps.list where it is named, and leaves
+  any other program the user chose. }
+procedure TFileAssLinuxBackend.ReleaseDefaults(App: TFileAssManager);
+var
+  Ini: TIniFile;
+  Types: TStringList;
+  Entry, Added: utf8string;
+  I: integer;
+begin
+  if not FileExists(MimeAppsFile) then Exit;
+  Entry := App.ApplicationID + '.desktop';
+  Types := TStringList.Create;
+  try
+    MimeTypes(App, Types);
+    Ini := TIniFile.Create(MimeAppsFile);
+    try
+      for I := 0 to Types.Count - 1 do
+      begin
+        if FirstEntry(Ini.ReadString('Default Applications', Types[I], '')) = Entry then
+          Ini.DeleteKey('Default Applications', Types[I]);
+        Added := Trim(Ini.ReadString('Added Associations', Types[I], ''));
+        if Pos(Entry + ';', Added + ';') > 0 then
+        begin
+          Added := StringReplace(Added + ';', Entry + ';', '', [rfReplaceAll]);
+          while (Added <> '') and (Added[Length(Added)] = ';') do Delete(Added, Length(Added), 1);
+          if Added = '' then Ini.DeleteKey('Added Associations', Types[I])
+          else
+            Ini.WriteString('Added Associations', Types[I], Added + ';');
+        end;
+      end;
+      Ini.UpdateFile;
+    finally
+      Ini.Free;
+    end;
+  finally
+    Types.Free;
+  end;
+end;
+
+{ A note on each type whose default is not this program; '' when they all
+  are. }
+function TFileAssLinuxBackend.OtherDefaults(App: TFileAssManager): utf8string;
+var
+  Ini: TIniFile;
+  Types: TStringList;
+  Entry, Chosen: utf8string;
+  I: integer;
+begin
+  Result := '';
+  Entry := App.ApplicationID + '.desktop';
+  Types := TStringList.Create;
+  Ini := TIniFile.Create(MimeAppsFile);
+  try
+    MimeTypes(App, Types);
+    for I := 0 to Types.Count - 1 do
+    begin
+      Chosen := FirstEntry(Ini.ReadString('Default Applications', Types[I], ''));
+      if Chosen = '' then Result := Result + 'No default program is set for ' + Types[I] + '. '
+      else if Chosen <> Entry then
+        Result := Result + 'The default program for ' + Types[I] + ' is ' + Chosen + '. ';
+    end;
+  finally
+    Ini.Free;
+    Types.Free;
+  end;
+end;
+
+{ A note when the caches the desktop reads are older than the files just
+  installed - the database utilities did not run, or failed - and so the
+  types or the launcher are not in effect; '' when they are current. }
+function TFileAssLinuxBackend.StaleDatabases(const Root: utf8string; Resources: TFileAssResources): utf8string;
+
+  function Older(const Cache, Source: utf8string): boolean;
+  begin
+    Result := not FileExists(Cache) or (FileAge(Cache) < FileAge(Source));
+  end;
+
+var
+  I: integer;
+  Path: utf8string;
+  Mime, Apps: boolean;
+begin
+  Result := '';
+  Mime := False;
+  Apps := False;
+  for I := 0 to Resources.Count - 1 do
+  begin
+    Path := Root + '/' + Resources[I].Path;
+    if not FileExists(Path) then Continue;
+    if Pos('mime/packages/', Resources[I].Path) = 1 then Mime := Mime or Older(Root + '/mime/mime.cache', Path)
+    else if Pos('applications/', Resources[I].Path) = 1 then Apps := Apps or Older(Root + '/applications/mimeinfo.cache', Path);
+  end;
+  if Mime then Result := Result + 'The MIME database is older than the types written for it. ';
+  if Apps then Result := Result + 'The application cache is older than the launcher written for it. ';
+end;
+
 function TFileAssLinuxBackend.RegisterTypes(App: TFileAssManager): TFileAssResult;
 var
   Resources: TFileAssResources;
@@ -224,6 +390,7 @@ begin
       // whatever an earlier registration installed that this one does not
       RemoveInstalled(Root, App.ApplicationID, Resources);
       Result := UpdateDatabases(Root);
+      if App.ClaimDefault then ClaimDefaults(App);
     except
       on E: Exception do Result := FileAssFailure(E);
     end;
@@ -239,6 +406,7 @@ begin
   if App.RegistrationScope = fasAllUsers then Exit(FileAssResult(farRequiresDeployment, AllUsersHint));
   try
     Root := DataDirectory;
+    ReleaseDefaults(App);
     if RemoveInstalled(Root, App.ApplicationID, nil) = 0 then Exit(FileAssResult(farSuccess, 'Nothing was registered.'));
     Result := UpdateDatabases(Root);
     if Result.Succeeded then Result.Message := 'File types removed.';
@@ -250,7 +418,7 @@ end;
 function TFileAssLinuxBackend.GetStatus(App: TFileAssManager; out Diagnostic: TFileAssResult): TFileAssStatus;
 var
   Resources: TFileAssResources;
-  Root: utf8string;
+  Root, Note: utf8string;
   I, Correct: integer;
 begin
   Result := fasVerificationFailed;
@@ -272,8 +440,15 @@ begin
       else if Correct = Resources.Count then Result := fasFullyRegistered
       else
         Result := fasPartiallyRegistered;
-      Diagnostic := FileAssResult(farSuccess, Format('%d of %d files are installed and current. Which program is the default is the user''s choice.',
-        [Correct, Resources.Count]));
+      Note := '';
+      if Correct > 0 then Note := StaleDatabases(Root, Resources);
+      if (Correct > 0) and App.ClaimDefault then Note := Note + OtherDefaults(App);
+      if (Result = fasFullyRegistered) and (Note <> '') then Result := fasPartiallyRegistered;
+      if Note <> '' then Note := ' ' + Trim(Note)
+      else if App.ClaimDefault then Note := ' This program is the default for its types.'
+      else
+        Note := ' Which program is the default is the user''s choice.';
+      Diagnostic := FileAssResult(farSuccess, Format('%d of %d files are installed and current.', [Correct, Resources.Count]) + Note);
     except
       on E: Exception do Diagnostic := FileAssFailure(E);
     end;

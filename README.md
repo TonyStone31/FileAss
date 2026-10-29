@@ -24,7 +24,7 @@ FileAssMan1.UnregisterAll;
 ```
 
 Registration only happens when you call it, and it keeps the user's chosen
-default applications.
+default applications unless you ask it to claim them.
 [Configuration and registration](GUIDE.md#configure-in-the-object-inspector)
 
 ## ⭐ One application instance, without writing IPC code

@@ -26,7 +26,7 @@ type
   private
     AppIdentifier, AppName, AppDescription, ProgramPath: utf8string;
     InstallScope: TFileAssScope;
-    MultipleDocuments, MenuEntry: boolean;
+    MultipleDocuments, MenuEntry, DefaultClaim: boolean;
     LinuxAppIcon, MacAppIcon: utf8string;
     DocumentTypes: TFileAssTypeCollection;
     Backend: TFileAssBackend;
@@ -70,6 +70,10 @@ type
     property SupportsMultipleFiles: boolean read MultipleDocuments write MultipleDocuments default False;
     // Linux: list the program in the Applications menu. This is not autostart.
     property ShowInApplicationMenu: boolean read MenuEntry write MenuEntry default False;
+    // Linux: when registering, make this program the default for its types in
+    // the user's mimeapps.list, and count another program there as needing
+    // repair. Off keeps whatever the user chose as the default.
+    property ClaimDefault: boolean read DefaultClaim write DefaultClaim default False;
     // Linux: the program's icon - an SVG or 128-pixel PNG file, or the name of
     // an icon in the theme. A relative path is beside the executable.
     property LinuxApplicationIcon: utf8string read LinuxAppIcon write LinuxAppIcon;
